@@ -4,11 +4,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from local_kb.store import resolve_repo_root
 from local_kb.store import write_yaml_file
 from local_kb.taxonomy import build_taxonomy_gap_report, build_taxonomy_view
 
 
 class TemplateTaxonomyTests(unittest.TestCase):
+    def test_template_repo_ships_one_safe_public_example_card(self) -> None:
+        repo_root = resolve_repo_root(Path(__file__).resolve().parents[1])
+        view = build_taxonomy_view(repo_root, route="system/knowledge-library/retrieval")
+
+        self.assertTrue(view["declared"])
+        self.assertEqual([card["id"] for card in view["direct_cards"]], ["model-004"])
+        self.assertEqual(view["coverage"]["primary_direct_count"], 1)
+
     def test_empty_template_taxonomy_is_valid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)

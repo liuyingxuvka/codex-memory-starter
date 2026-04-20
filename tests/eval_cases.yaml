@@ -1,1 +1,4 @@
-[]
+- query: before starting repository work, quickly scan the local knowledge library first
+  path_hint: system/knowledge-library/retrieval
+  expected_ids:
+    - model-004

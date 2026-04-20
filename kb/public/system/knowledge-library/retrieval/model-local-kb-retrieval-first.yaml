@@ -1,0 +1,44 @@
+id: model-004
+title: Repository tasks surface more prior models when the local KB is scanned first
+type: model
+scope: public
+domain_path:
+  - system
+  - knowledge-library
+  - retrieval
+cross_index:
+  - codex/workflow/context-reuse
+  - repository/usage/local-kb-retrieve
+  - planning/prefetch/prior-lessons
+tags:
+  - knowledge-base
+  - retrieval
+  - workflow
+  - preferences
+  - lessons
+trigger_keywords:
+  - kb
+  - retrieve
+  - retrieval
+  - preference
+  - workflow
+  - lesson
+if:
+  notes: Applies as the default starting point for repository tasks. The scan is intentionally lightweight, so even when no prior model applies it quickly confirms that no stored local context currently constrains the work.
+action:
+  description: Do a quick route-first scan of the local KB before substantive work, using the best available route hint for the task direction.
+predict:
+  expected_result: Stored models, constraints, and prior lessons are more likely to surface before work begins, which usually reduces re-derivation, missed expectations, and avoidable rework.
+  alternatives:
+    - when: Work begins without even a quick KB scan
+      result: Relevant prior models are more likely to stay unseen until later, which usually increases correction and coordination cost.
+    - when: The quick scan returns no relevant entries
+      result: The scan still provides a useful signal that the task can proceed without known stored constraints from the library.
+use:
+  guidance: Start repository work with a lightweight `local-kb-retrieve` scan and treat "no relevant entry" as useful information rather than a reason to skip retrieval in advance.
+confidence: 0.96
+source:
+  - origin: public template example
+    date: 2026-04-20
+status: trusted
+updated_at: 2026-04-20

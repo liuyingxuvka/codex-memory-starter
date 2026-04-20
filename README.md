@@ -1,6 +1,6 @@
 # Codex Memory Plug-in
 
-Current template version: `v0.1.1`
+Current template version: `v0.1.2`
 
 中文 / Chinese
 
@@ -32,15 +32,17 @@ Current template version: `v0.1.1`
 - sleep maintenance 脚手架
 - proposal / rollback 工具
 - taxonomy 层与测试
+- 一张永久公开、可安全版本化的示例卡：
+  `kb/public/system/knowledge-library/retrieval/model-local-kb-retrieval-first.yaml`
 
 ## 这个公开仓库里没有什么
 
 - 没有你的真实卡片
 - 没有你的 private 偏好
 - 没有你的真实 history
-- 没有应在真实工作中直接依赖的 live trusted cards
+- 没有除示例卡之外的 live trusted cards
 
-如果你看到示范性内容，它只能作为结构示例，不应被当成你的真实经验系统直接使用。
+当前唯一保留的公开示例卡，是关于“先查本地 KB 再工作”的库自身卡片。它可以公开、可以测试、也可以作为模板里的固定演示锚点；除此之外，这个公开仓库不应承载你的真实 live cards。
 
 ## 如何使用这个模板
 
@@ -50,7 +52,7 @@ Current template version: `v0.1.1`
 pip install -r requirements.txt
 ```
 
-2. 保持 `kb/` 为空骨架或只保留你自己愿意版本化的最小示例
+2. 保持 `kb/` 为轻量骨架。这个模板默认只保留一张安全公开的示例卡，其他 live cards 请放在你自己的私有仓库或私有 clone 中
 
 3. 从自己的卡片开始，而不是从公开模板里的示例卡片开始：
 
@@ -156,7 +158,7 @@ python -m unittest discover -s tests -p "test_*.py"
 
 - 公开模板应主要发布架构，不应顺手把你的真实 KB 一起发布出去
 - `kb/private/`、`kb/history/` 默认不应进入公开发布面
-- `kb/public/` 里的 live cards 也不应默认跟这个公开模板一起演化
+- 模板当前只保留一张安全公开的示例卡，用于演示和内部测试；其他 `kb/public/` live cards 不应默认跟这个公开模板一起演化
 - 更推荐把真实记忆库放在 private repo 或 private clone 中持续使用
 
 ---
@@ -191,15 +193,17 @@ If you are a developer:
 - sleep-maintenance scaffolding
 - proposal and rollback tooling
 - taxonomy layer and tests
+- one durable public example card:
+  `kb/public/system/knowledge-library/retrieval/model-local-kb-retrieval-first.yaml`
 
 ## What This Public Repo Does Not Include
 
 - your real cards
 - your private preferences
 - your real history
-- live trusted cards that should be directly relied on in production work
+- any live trusted cards beyond the single safe public example card
 
-If any sample content appears, treat it as structural illustration only, not as a real memory system ready for direct use.
+The one public example card is intentionally kept as a safe anchor for demos and internal tests. Other than that, this public repository should not carry your real live cards.
 
 ## Quick Use
 
@@ -209,7 +213,7 @@ If any sample content appears, treat it as structural illustration only, not as 
 pip install -r requirements.txt
 ```
 
-2. Keep `kb/` as an empty skeleton, or only preserve the smallest example content you intentionally want versioned.
+2. Keep `kb/` lightweight. This template intentionally ships one safe public example card; keep the rest of your real live cards in a private repo or private clone.
 
 3. Start with your own cards:
 

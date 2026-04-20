@@ -3,6 +3,10 @@ __pycache__/
 
 kb/public/*.yaml
 kb/public/**/*.yaml
+!kb/public/system/
+!kb/public/system/knowledge-library/
+!kb/public/system/knowledge-library/retrieval/
+!kb/public/system/knowledge-library/retrieval/model-local-kb-retrieval-first.yaml
 
 kb/private/*
 !kb/private/.gitignore

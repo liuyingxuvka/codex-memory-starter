@@ -1,4 +1,9 @@
 version: 1
 kind: official-taxonomy
-updated_at: template
-nodes: []
+updated_at: 2026-04-20
+nodes:
+  - segment: system
+    children:
+      - segment: knowledge-library
+        children:
+          - segment: retrieval
