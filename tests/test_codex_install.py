@@ -22,6 +22,12 @@ class CodexInstallTests(unittest.TestCase):
             self.assertEqual(payload["repo_root"], str(repo_root))
             self.assertEqual(payload["automation_ids"], ["kb-sleep", "kb-dream"])
 
+            skill_text = (codex_home / "skills" / "predictive-kb-preflight" / "SKILL.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("--route-hint", skill_text)
+            self.assertIn("search-style calls without the explicit `search` subcommand", skill_text)
+
             openai_text = (
                 codex_home / "skills" / "predictive-kb-preflight" / "agents" / "openai.yaml"
             ).read_text(encoding="utf-8")

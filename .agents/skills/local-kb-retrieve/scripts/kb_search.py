@@ -21,7 +21,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", default="auto")
     parser.add_argument("--query", required=True)
-    parser.add_argument("--path-hint", default="")
+    parser.add_argument("--path-hint", "--route-hint", dest="path_hint", default="")
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()

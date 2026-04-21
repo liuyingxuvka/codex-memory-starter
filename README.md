@@ -1,6 +1,6 @@
 # Codex-Memory-Plugin
 
-Current template version: `v0.1.6`
+Current template version: `v0.1.7`
 
 中文 / Chinese first. A full one-to-one English version is below.
 
@@ -149,7 +149,7 @@ python scripts/install_codex_kb.py --check --json
 
 ```bash
 python .agents/skills/local-kb-retrieve/scripts/kb_search.py \
-  --path-hint "repository/github-publishing/readme-presentation" \
+  --route-hint "repository/github-publishing/readme-presentation" \
   --query "prepare a public GitHub page for this user" \
   --top-k 5
 ```
@@ -336,7 +336,7 @@ Run one retrieval:
 
 ```bash
 python .agents/skills/local-kb-retrieve/scripts/kb_search.py \
-  --path-hint "repository/github-publishing/readme-presentation" \
+  --route-hint "repository/github-publishing/readme-presentation" \
   --query "prepare a public GitHub page for this user" \
   --top-k 5
 ```

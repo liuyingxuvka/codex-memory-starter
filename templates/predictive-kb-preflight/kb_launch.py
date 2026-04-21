@@ -29,6 +29,8 @@ SCRIPT_MAP = {
     "rollback": "kb_rollback.py",
     "maintenance": "kb_maintenance.py",
 }
+SEARCH_FLAG_MARKERS = {"--query", "--path-hint", "--route-hint", "--top-k"}
+SEARCH_ARG_ALIASES = {"--route-hint": "--path-hint"}
 
 
 def codex_home() -> Path:
@@ -122,11 +124,28 @@ def build_check_payload() -> dict[str, Any]:
     }
 
 
+def normalize_launcher_args(argv: list[str]) -> list[str]:
+    if not argv:
+        return []
+    if argv[0] in SCRIPT_MAP or argv[0] == "check":
+        return list(argv)
+    if any(token in SEARCH_FLAG_MARKERS for token in argv):
+        return ["search", *argv]
+    return list(argv)
+
+
+def normalize_forwarded_args(command: str, args: list[str]) -> list[str]:
+    if command != "search":
+        return list(args)
+    return [SEARCH_ARG_ALIASES.get(token, token) for token in args]
+
+
 def main() -> int:
+    argv = normalize_launcher_args(sys.argv[1:])
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=[*SCRIPT_MAP.keys(), "check"])
     parser.add_argument("args", nargs=argparse.REMAINDER)
-    parsed = parser.parse_args()
+    parsed = parser.parse_args(argv)
 
     if parsed.command == "check":
         payload = build_check_payload()
@@ -154,9 +173,10 @@ def main() -> int:
     repo_root = resolve_repo_root()
     script_path = repo_root / ".agents" / "skills" / "local-kb-retrieve" / "scripts" / SCRIPT_MAP[parsed.command]
     forwarded = [sys.executable, str(script_path)]
-    if "--repo-root" not in parsed.args:
+    normalized_args = normalize_forwarded_args(parsed.command, list(parsed.args))
+    if "--repo-root" not in normalized_args:
         forwarded.extend(["--repo-root", str(repo_root)])
-    forwarded.extend(parsed.args)
+    forwarded.extend(normalized_args)
     completed = subprocess.run(forwarded)
     return completed.returncode
 

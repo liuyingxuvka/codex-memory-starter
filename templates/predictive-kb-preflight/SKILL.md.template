@@ -36,6 +36,9 @@ Preferred operating pattern:
 - Release, publish, public-repo audit, README presentation, and template hygiene tasks still count as repository work. Do not skip the KB preflight just because another release or publishing skill is also in use.
 - For non-trivial work, use the launcher to run the KB scan first so the active task starts with retrieved local context instead of re-deriving it.
 - After the main task, treat KB postflight as part of done. Record one structured observation whenever the task exposed a miss, reusable lesson, route gap, card weakness, or KB-process failure.
+- The launcher is subcommand-based: `python "{{LAUNCHER_PATH}}" <command> ...`. The normal preflight entry is `search`.
+- For compatibility, the launcher also treats common search-style calls without the explicit `search` subcommand as a search request.
+- For search, prefer `--route-hint`. The underlying local search script also accepts the older `--path-hint` name.
 
 ## Workflow
 
@@ -45,7 +48,7 @@ Preferred operating pattern:
 
    ```powershell
    python "{{LAUNCHER_PATH}}" search `
-     --path-hint "<primary route>" `
+     --route-hint "<primary route>" `
      --query "<task summary plus useful keywords>" `
      --top-k 5 `
      --json

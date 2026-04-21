@@ -47,7 +47,7 @@ Independent maintenance thread:
 2. Infer one primary conceptual route such as `work/reporting/ppt` or `engineering/debugging/version-change`.
 3. Infer up to three alternative routes when the task may be reachable through more than one conceptual direction.
 4. If sub-agents are available and the task is non-trivial, let `kb-scout` handle the initial scan. Otherwise run:
-   `python .agents/skills/local-kb-retrieve/scripts/kb_search.py --path-hint "<primary route>" --query "<task summary plus useful keywords>" --top-k 5`
+   `python .agents/skills/local-kb-retrieve/scripts/kb_search.py --route-hint "<primary route>" --query "<task summary plus useful keywords>" --top-k 5`
 5. Read the returned entries.
 6. Prefer entries with stronger route alignment, `status: trusted`, and higher `confidence`.
 7. Use retrieved entries as bounded context. Do not overgeneralize beyond the entry scope.
@@ -107,3 +107,4 @@ Output discipline:
 - During sleep maintenance, repeated hits are a split-review signal, not an automatic split rule. Keep intact hub cards that still express one predictive relation, and only split overloaded cards that now carry multiple predictive relations.
 - Runtime-behavior lessons should be written as predictions about this runtime under concrete conditions, not as vague folklore about “LLMs in general.”
 - Cross-index maintenance should only strengthen direct alternate retrieval paths from repeated actual route evidence in low-risk auto-apply. Pruning or broader route cleanup should remain proposal-first until stronger removal evidence exists.
+- For search entry compatibility, prefer `--route-hint` in prompts and examples. The local search script still accepts the older `--path-hint` name for backward compatibility.
