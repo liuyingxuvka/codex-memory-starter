@@ -1,6 +1,6 @@
 # Codex-Memory-Plugin
 
-Current template version: `v0.1.5`
+Current template version: `v0.1.6`
 
 中文 / Chinese first. A full one-to-one English version is below.
 
@@ -108,6 +108,27 @@ use:
 
 这让记忆从“静态建议”更接近“可操作模型”。
 
+## 它不只会“睡眠”，也会“做梦”
+
+这个仓库现在把维护生命周期明确拆成两条不同的自动化机制：
+
+- **Sleep / 睡眠**
+  处理已经发生过的真实任务证据。
+  它负责整理 observation history、生成或审查 candidate、检查 taxonomy gap、以及做低风险 maintenance。
+- **Dream / 做梦**
+  处理“还没真正做过很多次，但值得验证”的邻近机会。
+  它会从 miss、weak hit、taxonomy gap、低置信 candidate 或 proposal-only action 中挑一个小问题，做一次有边界的本地验证，然后只把结果写回 history 或 candidate。
+
+这两条机制不会混在一起：
+
+- `KB Sleep` 每天 12:00 运行
+- `KB Dream` 每天 13:00 运行
+- 它们由安装器自动写入 `$CODEX_HOME/automations/`
+- 重新在另一台机器上运行安装器时，这两条节律会一起被恢复
+
+换句话说，这个项目现在不只是“整理记忆”，还开始支持一种受控的“做梦式探索”：
+先在小范围内试探值得学的新路径，再把验证过的结果作为候选经验写回系统。
+
 ## 快速开始
 
 先安装：
@@ -116,6 +137,13 @@ use:
 python scripts/install_codex_kb.py --json
 python scripts/install_codex_kb.py --check --json
 ```
+
+安装器除了全局 preflight skill 之外，也会在 `$CODEX_HOME/automations/` 下刷新这个仓库的两条 repo-managed 定时维护规则：
+
+- `KB Sleep`: 每天 12:00 运行 sleep maintenance
+- `KB Dream`: 每天 13:00 运行 bounded dream exploration
+
+这样把仓库换到另一台机器后，重新跑一次安装器，就会把同样的维护节律一起带过去。
 
 做一次检索：
 
@@ -267,6 +295,27 @@ That means future cards do not only say “this is the recommended path.” They
 
 This moves memory closer to an **operational model** rather than a static suggestion.
 
+### It Does Not Only “Sleep,” It Also “Dreams”
+
+The repository now separates maintenance into two different recurring lanes:
+
+- **Sleep**
+  Works on real task evidence that already happened.
+  It consolidates observation history, reviews or creates candidates, inspects taxonomy gaps, and runs the current low-risk maintenance paths.
+- **Dream**
+  Works on nearby opportunities that have not yet been exercised enough in live work.
+  It selects one bounded miss, weak hit, taxonomy gap, low-confidence candidate, or proposal-only action, runs a small local validation pass, and writes back only to history or candidates.
+
+These lanes stay deliberately separate:
+
+- `KB Sleep` runs daily at 12:00
+- `KB Dream` runs daily at 13:00
+- both are provisioned automatically by the installer under `$CODEX_HOME/automations/`
+- rerunning the installer on another machine restores the same cadence
+
+So the project is no longer only about consolidating memory. It now also supports a controlled dream-style exploration loop:
+probe adjacent possibilities in a bounded way first, then write validated results back as provisional experience.
+
 ### Quick start
 
 Install first:
@@ -275,6 +324,13 @@ Install first:
 python scripts/install_codex_kb.py --json
 python scripts/install_codex_kb.py --check --json
 ```
+
+The installer refreshes not only the global preflight skill but also the repository-managed cron automations in `$CODEX_HOME/automations/`:
+
+- `KB Sleep`: daily 12:00 sleep maintenance
+- `KB Dream`: daily 13:00 bounded dream exploration
+
+That means re-running the installer on another machine carries over the same maintenance cadence together with the repository root configuration.
 
 Run one retrieval:
 

@@ -7,6 +7,7 @@
 - Treat the installer as idempotent. If the system may already be installed, rerun the installer anyway rather than asking the user to verify it manually.
 - If this repository was moved to a new path or re-cloned, rerun the installer from the new clone so the Codex-side manifest points at the current KB root.
 - The installed global preflight skill must enable implicit invocation and must remind Codex to record KB postflight observations after meaningful work. Treat either missing behavior as an installation defect and fix it.
+- The installer must also refresh the repository-managed `KB Sleep` and `KB Dream` cron automations under `$CODEX_HOME/automations` so another machine inherits the same maintenance cadence after bootstrap.
 
 ## Start here
 

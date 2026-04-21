@@ -4,10 +4,13 @@ This runbook is for the independent `kb-sleeper` maintenance pass. It is operati
 
 `PROJECT_SPEC.md` remains the canonical source for repository rules and thresholds. This runbook describes how to operate the current tooling safely. If the runbook and the spec disagree, follow the spec and then simplify the runbook.
 
+The repository installer is expected to provision a repo-managed `KB Sleep` cron automation under `$CODEX_HOME/automations/`. Re-running `python scripts/install_codex_kb.py --json` on another machine should refresh that schedule automatically.
+
 ## Rule Discipline
 
 - Keep the mathematical rules simple and explicit. Prefer additive scores, counts, and fixed thresholds over adaptive or opaque heuristics.
 - Separate online-path survival from sleep-time repair. The active retrieval path should stay small, stable, and non-mutating; sleep maintenance is where cleanup and repair belong.
+- Keep sleep separate from dream exploration. Consolidation and exploration should not share the same live maintenance window or mutate the same repository state concurrently.
 - Treat `confidence` and `status` as reranking terms, not as stand-alone evidence that can create a hit without route or lexical support.
 - Every auto-apply rule should answer four questions clearly: what inputs it reads, what condition it checks, what file change it makes, and how it is validated or rolled back.
 
@@ -27,6 +30,7 @@ This runbook is for the independent `kb-sleeper` maintenance pass. It is operati
 - Run after active work sessions that produced multiple observations or misses.
 - Run at least daily while the repository is evolving quickly.
 - Run before changing retrieval behavior or route structure.
+- Keep the sleep schedule offset from any dream schedule, and skip the pass if a dream run may still be active or unresolved.
 - Do not run inside the main task thread unless the task is blocked by KB drift.
 
 ## Roles

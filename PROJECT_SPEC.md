@@ -199,6 +199,7 @@ This is an architectural principle for the library. The storage format should re
 - one candidate-capture script
 - history or feedback logs
 - AI-driven scheduled consolidation / “sleep” maintenance
+- optional bounded “dream” exploration maintenance that writes only to history or candidates
 - example entries
 - small evaluation cases
 - documentation for Codex
@@ -209,6 +210,7 @@ This is an architectural principle for the library. The storage format should re
 - external databases
 - opaque autonomous promotion without AI-authored rationale or logged criteria
 - hidden autonomous write-back without snapshots or rollback
+- free-form autonomous capability growth or direct trusted-card mutation from dream-only evidence
 - MCP-backed knowledge services
 - opaque or mandatory subagent orchestration without fallback behavior
 - probabilistic calibration infrastructure
@@ -226,11 +228,13 @@ The repository should be organized so the file system itself supports the concep
 ├─ PROJECT_SPEC.md
 ├─ README.md
 ├─ docs/
+│  ├─ dream_runbook.md
 │  └─ maintenance_runbook.md
 ├─ .agents/
 │  └─ skills/
 │     └─ local-kb-retrieve/
 │        ├─ SKILL.md
+│        ├─ DREAM_PROMPT.md
 │        ├─ MAINTENANCE_PROMPT.md
 │        ├─ agents/openai.yaml
 │        └─ scripts/
@@ -239,6 +243,7 @@ The repository should be organized so the file system itself supports the concep
 │           ├─ kb_feedback.py
 │           ├─ kb_capture_candidate.py
 │           ├─ kb_consolidate.py
+│           ├─ kb_dream.py
 │           ├─ kb_proposals.py
 │           ├─ kb_rollback.py
 │           └─ kb_taxonomy.py
@@ -738,6 +743,79 @@ In short:
 - scheduled maintenance should synthesize cards from observations
 - durable cards should represent consolidated reusable experience, not raw task residue
 
+### 10.10 Separate dream exploration maintenance
+
+The repository may also support a separate **dream** lane, but it must remain distinct from sleep maintenance.
+
+The purpose of sleep is consolidation:
+
+- review accumulated real observations
+- repair, merge, split, rerank, or deprecate memory surfaces
+- keep the active retrieval layer clean and auditable
+
+The purpose of dream is exploration:
+
+- generate bounded hypotheses from existing cards, misses, and route gaps
+- run small validation attempts on things that have not yet been tried enough in normal work
+- discover whether an adjacent route, workflow, or capability is worth later real-world use
+
+This distinction matters because the repository should not treat speculative exploration as if it were already trusted experience.
+
+The required operating rules are:
+
+- dream and sleep must run in separate automations, threads, or maintenance sessions
+- they must not run concurrently on the same repository state
+- dream should write only to history, proposal artifacts, or `kb/candidates/`
+- dream should never directly rewrite `kb/public/` or `kb/private/`
+- dream-derived evidence should preserve explicit provenance so later maintenance can tell it apart from normal task evidence
+- dream-derived evidence alone is not enough to promote or strongly raise confidence on a trusted card
+- user-specific predictions discovered during dream mode should stay especially conservative; they should not become trusted private cards without later confirmation in live interaction
+
+Dream mode should stay grounded in existing evidence. Eligible inputs are things such as:
+
+- repeated retrieval misses
+- repeated weak hits
+- low-confidence candidates that need a narrow validation attempt
+- proposal-only maintenance actions that still need evidence
+- taxonomy gaps that repeatedly appear in observed routes
+- explicit user-supplied hypotheses such as “maybe the system could learn X this way”
+
+Each dream run should create a bounded experiment record before acting. That record should say:
+
+- which route or card cluster the exploration is about
+- what hypothesis is being tested
+- what the maximum allowed action surface is
+- what success, failure, or inconclusive result would look like
+- what write-back is permitted afterward
+
+For v0.1, dream mode should prefer:
+
+- read-only inspection
+- local dry-runs
+- retrieval experiments
+- proposal generation
+- candidate scaffolding
+- evaluation against explicit tests or route checks
+
+It should avoid:
+
+- repo-wide formatting
+- dependency installs
+- lockfile churn
+- destructive changes
+- broad refactors
+- silent trusted-card rewrites
+- open-ended “try anything interesting” behavior
+
+The simplest acceptable write-back policy is:
+
+- every dream run appends an explicit observation or maintenance event to history
+- if the run produced a reusable hypothesis, it may also create or update a candidate scaffold
+- if the result was noisy, one-off, or failed to generalize, keep it in history only
+- sleep maintenance may later review these dream outputs, but trusted promotion should still depend on later grounded evidence from real tasks or repeated low-risk confirmation
+
+Dream mode is therefore not a second consolidation pass. It is a bounded hypothesis-generation and validation lane whose outputs remain provisional until later evidence supports them.
+
 ## 11. Implementation Plan for Codex
 
 Codex should treat the following as the implementation sequence.
@@ -790,6 +868,16 @@ Tasks:
 1. Expand `tests/eval_cases.yaml`.
 2. Include route-based examples, not only keyword examples.
 3. Verify that relevant entries rank near the top for representative tasks.
+
+### Phase 6 — Add optional dream-mode scaffolding
+
+Tasks:
+
+1. Add a dedicated runbook that keeps dream-mode separate from sleep maintenance.
+2. Store dream run artifacts under a distinct history location such as `kb/history/dream/<run-id>/` when a dedicated tool does not yet exist.
+3. Reuse current file-based tools such as `kb_search.py`, `kb_feedback.py`, `kb_capture_candidate.py`, and proposal artifacts instead of introducing opaque autonomous machinery.
+4. Keep dream write-back candidate-only or history-only until later real-task evidence confirms the result.
+5. Add a small evaluation set that checks the system can distinguish consolidation work from exploration work.
 
 ## 12. Definition of Done for v0.1
 

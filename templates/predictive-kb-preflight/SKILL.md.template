@@ -21,6 +21,8 @@ If the repository is moved or re-cloned to a different path, rerun:
 python scripts/install_codex_kb.py --json
 ```
 
+That installer refreshes both the global preflight skill and the repository-managed `KB Sleep` / `KB Dream` cron automations under `$CODEX_HOME/automations`, so another machine can inherit the same maintenance cadence from the repository itself.
+
 If the user asks to install, enable, deploy, bootstrap, or set up this predictive KB system on a machine from within this repository, the default first actions are:
 
 ```powershell
