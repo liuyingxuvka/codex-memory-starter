@@ -23,10 +23,13 @@ This repository stores a local predictive knowledge library that Codex can consu
 
 ## GitHub publish default
 
-- When the user asks to update or sync GitHub for this repository, default to a release-style publish flow rather than a branch-only push.
-- Inspect `VERSION`, visible README versioning, git tags, and GitHub Release state together before publishing.
-- If repository content changed since the last tagged commit, choose the next version, update visible version files, create a new annotated tag, and push the branch plus tag unless the user explicitly asks for branch-only sync.
+- When the user asks to update or sync GitHub for this repository, default to a **release audit** first, not to an automatic version bump.
+- Inspect `VERSION`, visible README versioning, git tags, GitHub Release state, and the commit currently targeted by the latest tag together before publishing.
+- Only create a new version when there is a **release-worthy public delta** since the last tagged commit. Do not mint a new version for history-only KB changes, private-card churn, release-note wording edits, or other same-commit repair work.
+- If an existing tag or Release already points at the intended source commit, repair or reuse that release state instead of creating another version number for the same commit.
+- Create the release commit first, then create the tag, then verify the tag target, then push branch and tag, then create or update the GitHub Release. Do not create the commit and tag in parallel.
 - Do not move an existing tag unless the user explicitly asks for it.
+- Keep detailed release rules in `docs/release_policy.md`.
 
 ## How to use the library
 
