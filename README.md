@@ -1,6 +1,6 @@
 # Khaos Brain
 
-- Repository head (`main`) / 仓库主线（`main`）: `v0.1.13`
+- Repository head (`main`) / 仓库主线（`main`）: `post-v0.1.13`
 - Latest released version / 最新已发布版本: `v0.1.13`
 - Project name / 项目名称: `Khaos Brain`
 - 中文正文在前；后半部分是完整英文镜像。

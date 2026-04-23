@@ -113,3 +113,19 @@ In those cases, prefer:
 
 If unsure between “no release” and `patch`, choose **no release** unless another machine or a normal user would meaningfully notice the new behavior.
 
+## 8. Version gaps are acceptable
+
+Patch numbers do not need to stay perfectly contiguous forever.
+
+If cleanup removes redundant or mistaken releases, it is acceptable for the visible history to skip numbers such as:
+
+- `v0.1.8` -> `v0.1.10`
+- `v0.1.12` -> `v0.1.13`
+
+That is healthier than keeping multiple public version numbers for the same source commit.
+
+The goal is not perfect arithmetic continuity. The goal is:
+
+- one meaningful public version per source boundary
+- clear latest-version signaling
+- no duplicate same-commit versions
