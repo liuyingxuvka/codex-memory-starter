@@ -16,10 +16,6 @@ A local brain-like memory system for Codex: work while awake, consolidate in sle
 
 ## 产品预览 / Product Preview
 
-下面两张图是当前桌面应用的英文 UI 预览，适合作为 GitHub 首页上的第一眼展示。
-
-The two screenshots below show the current desktop app in English UI, intended as the first-look preview on the GitHub page.
-
 | Desktop Library | Card Detail |
 | --- | --- |
 | ![Khaos Brain desktop overview in English](assets/screenshots/desktop-overview-en.png) | ![Khaos Brain desktop detail view in English](assets/screenshots/desktop-detail-en.png) |
