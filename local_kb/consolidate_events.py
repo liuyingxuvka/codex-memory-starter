@@ -75,6 +75,86 @@ HIT_QUALITY_SCORES = {
     "misleading": 3,
 }
 
+UTILITY_NEGATIVE_MARKERS = (
+    "one-off",
+    "not reusable",
+    "not useful",
+    "low utility",
+    "no future",
+    "no reuse",
+    "unclear",
+    "unknown",
+    "n/a",
+    "none",
+    "一次性",
+    "不可复用",
+    "没用",
+    "无用",
+    "没有帮助",
+    "不清楚",
+)
+
+GENERIC_OPERATIONAL_USE_PATTERNS = (
+    "use this",
+    "use this as bounded context",
+    "remember this",
+    "record this",
+    "help future tasks",
+    "use later",
+    "keep in mind",
+    "bounded context",
+    "使用这个",
+    "记录这个",
+    "以后使用",
+    "作为上下文",
+)
+
+ACTIONABLE_UTILITY_TERMS = (
+    "prefer",
+    "avoid",
+    "check",
+    "run",
+    "use",
+    "start",
+    "keep",
+    "skip",
+    "review",
+    "inspect",
+    "ask",
+    "apply",
+    "route",
+    "retrieve",
+    "record",
+    "create",
+    "update",
+    "translate",
+    "validate",
+    "fallback",
+    "deprecate",
+    "promote",
+    "demote",
+    "default",
+    "treat",
+    "优先",
+    "避免",
+    "检查",
+    "运行",
+    "使用",
+    "保留",
+    "跳过",
+    "审查",
+    "应用",
+    "检索",
+    "记录",
+    "创建",
+    "更新",
+    "翻译",
+    "验证",
+    "降级",
+    "废弃",
+    "提升",
+)
+
 
 def utc_now_compact() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -199,6 +279,53 @@ def has_predictive_evidence(event: dict[str, Any]) -> bool:
     )
 
 
+def _normalized_utility_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def _utility_token_count(value: str) -> int:
+    return len(re.findall(r"[a-z0-9][a-z0-9_+-]*|[\u4e00-\u9fff]", value.lower()))
+
+
+def assess_predictive_utility(event: dict[str, Any]) -> dict[str, Any]:
+    predictive = event.get("predictive_observation", {})
+    if not isinstance(predictive, dict):
+        predictive = {}
+    operational_use = _normalized_utility_text(predictive.get("operational_use"))
+    reuse_judgment = _normalized_utility_text(predictive.get("reuse_judgment"))
+    assessment = {
+        "has_complete_predictive_evidence": has_predictive_evidence(event),
+        "has_future_utility": False,
+        "reason": "predictive-evidence:missing",
+        "operational_use": str(predictive.get("operational_use", "") or "").strip(),
+        "reuse_judgment": str(predictive.get("reuse_judgment", "") or "").strip(),
+    }
+    if not assessment["has_complete_predictive_evidence"]:
+        return assessment
+    if not operational_use:
+        assessment["reason"] = "predictive-utility:missing-operational-use"
+        return assessment
+    if operational_use in GENERIC_OPERATIONAL_USE_PATTERNS:
+        assessment["reason"] = "predictive-utility:generic-operational-use"
+        return assessment
+    if any(marker in f"{operational_use} {reuse_judgment}" for marker in UTILITY_NEGATIVE_MARKERS):
+        assessment["reason"] = "predictive-utility:low-utility-marker"
+        return assessment
+    if _utility_token_count(operational_use) < 5:
+        assessment["reason"] = "predictive-utility:too-vague"
+        return assessment
+    if not any(term in operational_use for term in ACTIONABLE_UTILITY_TERMS):
+        assessment["reason"] = "predictive-utility:not-actionable"
+        return assessment
+    assessment["has_future_utility"] = True
+    assessment["reason"] = "predictive-utility:present"
+    return assessment
+
+
+def has_predictive_utility(event: dict[str, Any]) -> bool:
+    return bool(assess_predictive_utility(event).get("has_future_utility"))
+
+
 def has_contrastive_evidence(event: dict[str, Any]) -> bool:
     predictive = event.get("predictive_observation", {})
     if not isinstance(predictive, dict):
@@ -267,6 +394,34 @@ def route_or_task_target(event: dict[str, Any]) -> tuple[str, str]:
     return "event", str(event["event_id"])
 
 
+def append_predictive_observation_review_seed(
+    seeds: list[dict[str, Any]],
+    event: dict[str, Any],
+    *,
+    target_kind: str | None = None,
+    target_ref: str | None = None,
+) -> None:
+    evidence_complete = has_predictive_evidence(event)
+    utility_assessment = assess_predictive_utility(event)
+    if evidence_complete and utility_assessment.get("has_future_utility"):
+        return
+    if target_kind is None or target_ref is None:
+        target_kind, target_ref = route_or_task_target(event)
+    seeds.append(
+        {
+            "action_type": "review-observation-evidence",
+            "target_kind": target_kind,
+            "target_ref": target_ref,
+            "route_ref": route_label(event.get("route_hint", [])),
+            "reason": (
+                "predictive-evidence:missing"
+                if not evidence_complete
+                else str(utility_assessment.get("reason") or "predictive-utility:missing")
+            ),
+        }
+    )
+
+
 def build_action_seeds(event: dict[str, Any]) -> list[dict[str, Any]]:
     seeds: list[dict[str, Any]] = []
     event_type = event.get("event_type", "")
@@ -288,7 +443,6 @@ def build_action_seeds(event: dict[str, Any]) -> list[dict[str, Any]]:
 
     suggested_action = event.get("suggested_action", "none")
     hit_quality = str(event.get("hit_quality", "none") or "none")
-    predictive_evidence_complete = has_predictive_evidence(event)
     if suggested_action == "update-card":
         entry_ids = event.get("entry_ids", [])
         if entry_ids:
@@ -321,19 +475,9 @@ def build_action_seeds(event: dict[str, Any]) -> list[dict[str, Any]]:
                     "target_ref": target_ref,
                     "route_ref": route_ref,
                     "reason": "suggested-action:update-card",
-                }
-            )
-        if not predictive_evidence_complete:
-            target_kind, target_ref = route_or_task_target(event)
-            seeds.append(
-                {
-                    "action_type": "review-observation-evidence",
-                    "target_kind": target_kind,
-                    "target_ref": target_ref,
-                    "route_ref": route_ref,
-                    "reason": "predictive-evidence:missing",
-                }
-            )
+                    }
+                )
+        append_predictive_observation_review_seed(seeds, event)
         return seeds
 
     if suggested_action == "new-candidate":
@@ -347,16 +491,7 @@ def build_action_seeds(event: dict[str, Any]) -> list[dict[str, Any]]:
                 "reason": "suggested-action:new-candidate",
             }
         )
-        if not predictive_evidence_complete:
-            seeds.append(
-                {
-                    "action_type": "review-observation-evidence",
-                    "target_kind": target_kind,
-                    "target_ref": target_ref,
-                    "route_ref": route_ref,
-                    "reason": "predictive-evidence:missing",
-                }
-            )
+        append_predictive_observation_review_seed(seeds, event, target_kind=target_kind, target_ref=target_ref)
         return seeds
 
     if suggested_action == "taxonomy-change":
@@ -370,16 +505,7 @@ def build_action_seeds(event: dict[str, Any]) -> list[dict[str, Any]]:
                 "reason": "suggested-action:taxonomy-change",
             }
         )
-        if not predictive_evidence_complete:
-            seeds.append(
-                {
-                    "action_type": "review-observation-evidence",
-                    "target_kind": target_kind,
-                    "target_ref": target_ref,
-                    "route_ref": route_ref,
-                    "reason": "predictive-evidence:missing",
-                }
-            )
+        append_predictive_observation_review_seed(seeds, event, target_kind=target_kind, target_ref=target_ref)
         return seeds
 
     if suggested_action == "code-change":
@@ -393,16 +519,7 @@ def build_action_seeds(event: dict[str, Any]) -> list[dict[str, Any]]:
                 "reason": "suggested-action:code-change",
             }
         )
-        if not predictive_evidence_complete:
-            seeds.append(
-                {
-                    "action_type": "review-observation-evidence",
-                    "target_kind": target_kind,
-                    "target_ref": target_ref,
-                    "route_ref": route_ref,
-                    "reason": "predictive-evidence:missing",
-                }
-            )
+        append_predictive_observation_review_seed(seeds, event, target_kind=target_kind, target_ref=target_ref)
         return seeds
 
     if event.get("entry_ids") and (hit_quality in HIT_QUALITY_SCORES or event.get("exposed_gap")):
@@ -822,6 +939,8 @@ def summarize_predictive_evidence(events: list[dict[str, Any]]) -> dict[str, Any
     examples: list[dict[str, Any]] = []
     complete_event_count = 0
     incomplete_event_count = 0
+    future_utility_event_count = 0
+    low_utility_event_count = 0
     contrastive_event_count = 0
     for event in events:
         predictive = event.get("predictive_observation", {})
@@ -829,10 +948,15 @@ def summarize_predictive_evidence(events: list[dict[str, Any]]) -> dict[str, Any
             predictive = {}
         contrastive = normalize_contrastive_evidence(predictive.get("contrastive_evidence", {}))
         complete = has_predictive_evidence(event)
+        utility_assessment = assess_predictive_utility(event)
         if complete:
             complete_event_count += 1
         else:
             incomplete_event_count += 1
+        if utility_assessment.get("has_future_utility"):
+            future_utility_event_count += 1
+        elif complete:
+            low_utility_event_count += 1
         if has_contrastive_evidence(event):
             contrastive_event_count += 1
         if len(examples) >= 3:
@@ -845,6 +969,8 @@ def summarize_predictive_evidence(events: list[dict[str, Any]]) -> dict[str, Any
             "observed_result": str(predictive.get("observed_result", "") or ""),
             "operational_use": str(predictive.get("operational_use", "") or ""),
             "reuse_judgment": str(predictive.get("reuse_judgment", "") or ""),
+            "future_utility": bool(utility_assessment.get("has_future_utility")),
+            "utility_reason": str(utility_assessment.get("reason", "") or ""),
         }
         if any(contrastive.values()):
             example["contrastive_evidence"] = contrastive
@@ -853,6 +979,8 @@ def summarize_predictive_evidence(events: list[dict[str, Any]]) -> dict[str, Any
     return {
         "complete_event_count": complete_event_count,
         "incomplete_event_count": incomplete_event_count,
+        "future_utility_event_count": future_utility_event_count,
+        "low_utility_event_count": low_utility_event_count,
         "contrastive_event_count": contrastive_event_count,
         "contrastive_example_count": sum(1 for example in examples if example.get("contrastive_evidence")),
         "example_count": len(examples),

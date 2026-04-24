@@ -37,6 +37,38 @@ SEMANTIC_REVIEW_AUTO_APPLY_DECISIONS = {
     "deprecate",
 }
 
+SEMANTIC_REVIEW_SURFACE_DECISIONS = {
+    "keep",
+    "rewrite",
+    "adjust-confidence",
+    "promote",
+}
+
+SEMANTIC_REVIEW_REMOVAL_DECISIONS = {
+    "demote",
+    "deprecate",
+}
+
+SEMANTIC_REVIEW_UTILITY_JUDGMENTS = {
+    "useful",
+    "low-utility",
+    "obsolete",
+    "misleading",
+    "unclear",
+    "insufficient-evidence",
+}
+
+SEMANTIC_REVIEW_UTILITY_ALIASES = {
+    "low utility": "low-utility",
+    "not useful": "low-utility",
+    "not-useful": "low-utility",
+    "no-utility": "low-utility",
+    "no utility": "low-utility",
+    "stale": "obsolete",
+    "harmful": "misleading",
+    "insufficient evidence": "insufficient-evidence",
+}
+
 SEMANTIC_REVIEW_ALLOWED_UPDATE_FIELDS = {
     "title",
     "type",
@@ -91,6 +123,19 @@ def normalize_semantic_risk(value: Any, *, trusted_surface: bool, decision: str)
     if trusted_surface:
         return "medium"
     return "low"
+
+
+def normalize_semantic_utility_assessment(value: Any) -> dict[str, str]:
+    if isinstance(value, dict):
+        raw_judgment = str(value.get("judgment", "") or "").strip().lower()
+        reason = str(value.get("reason", "") or "").strip()
+    else:
+        raw_judgment = str(value or "").strip().lower()
+        reason = ""
+    raw_judgment = SEMANTIC_REVIEW_UTILITY_ALIASES.get(raw_judgment, raw_judgment)
+    if raw_judgment not in SEMANTIC_REVIEW_UTILITY_JUDGMENTS:
+        raw_judgment = ""
+    return {"judgment": raw_judgment, "reason": reason}
 
 
 def normalize_semantic_review_plan(path: Path | None) -> dict[str, Any]:
@@ -202,6 +247,7 @@ def build_semantic_review_suggestion(
             "apply",
             "decision",
             "risk",
+            "utility_assessment",
             "evidence_event_ids",
             "rationale",
             "expected_retrieval_effect",
@@ -211,5 +257,13 @@ def build_semantic_review_suggestion(
             "low": "Candidate-card edits and explicit keep decisions are eligible when evidence is cited.",
             "medium": "Trusted-card rewrites or confidence changes count against the trusted-card budget.",
             "high": "Promotion, demotion, deprecation, split, and merge decisions require explicit AI rationale and still count against the trusted-card budget when they touch trusted surfaces.",
+        },
+        "utility_policy": {
+            "useful": "Required for keep, rewrite, adjust-confidence, and promote decisions.",
+            "low-utility": "Use demote or deprecate when cited evidence shows the card is unlikely to help future tasks.",
+            "obsolete": "Use demote or deprecate when the card is stale compared with newer evidence.",
+            "misleading": "Use deprecate when future retrieval would likely push Codex toward the wrong action.",
+            "unclear": "Do not preserve or promote a card without clearer future-use evidence.",
+            "insufficient-evidence": "Do not preserve or promote a card when the review cannot ground future utility.",
         },
     }

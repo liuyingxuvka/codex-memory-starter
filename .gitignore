@@ -1,5 +1,8 @@
 __pycache__/
 *.pyc
+build/
+dist/
+*.spec
 
 kb/public/*.yaml
 kb/public/**/*.yaml

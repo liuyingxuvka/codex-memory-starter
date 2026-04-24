@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import time
 import tomllib
@@ -27,6 +28,13 @@ GLOBAL_AGENTS_FILENAME = "AGENTS.md"
 GLOBAL_AGENTS_BEGIN = "<!-- BEGIN MANAGED PREDICTIVE KB DEFAULTS -->"
 GLOBAL_AGENTS_END = "<!-- END MANAGED PREDICTIVE KB DEFAULTS -->"
 CODEX_SHELL_BIN_RELATIVE = Path("OpenAI") / "Codex" / "bin"
+AUTOMATION_MODEL_POLICY = "strongest-available"
+AUTOMATION_REASONING_EFFORT_POLICY = "deepest"
+AUTOMATION_MODEL_ENV_VAR = "CODEX_KB_AUTOMATION_MODEL"
+AUTOMATION_REASONING_EFFORT_ENV_VAR = "CODEX_KB_AUTOMATION_REASONING_EFFORT"
+AUTOMATION_FALLBACK_MODEL = "gpt-5.5"
+AUTOMATION_FALLBACK_REASONING_EFFORT = "xhigh"
+REASONING_EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh")
 
 SLEEP_AUTOMATION_PROMPT = (
     "Run the repository's local KB sleep-maintenance pass for this workspace. Use PROJECT_SPEC.md, "
@@ -36,6 +44,7 @@ SLEEP_AUTOMATION_PROMPT = (
     "taxonomy and route gaps, review candidate route quality by preferring functional "
     "domain paths over project-name roots, allow the current low-risk new-candidate, related-card, cross-index, "
     "AI-authored semantic-review, and AI-authored i18n apply paths when clearly eligible, "
+    "require future utility before auto-creating candidate cards, require semantic-review utility assessments, "
     "limit semantic-review to at most 3 trusted-card modifications per run, run zh-CN display translation cleanup "
     "after candidate/card creation or semantic card text changes, keep taxonomy rewrites proposal-only unless current "
     "tooling cleanly supports them, inspect rollback artifacts when needed, continue "
@@ -91,8 +100,8 @@ REPO_AUTOMATION_SPECS = (
         "prompt": SLEEP_AUTOMATION_PROMPT,
         "status": "ACTIVE",
         "rrule": "FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH,FR,SA;BYHOUR=12;BYMINUTE=0",
-        "model": "gpt-5.4",
-        "reasoning_effort": "xhigh",
+        "model_policy": AUTOMATION_MODEL_POLICY,
+        "reasoning_effort_policy": AUTOMATION_REASONING_EFFORT_POLICY,
         "execution_environment": "local",
     },
     {
@@ -102,8 +111,8 @@ REPO_AUTOMATION_SPECS = (
         "prompt": DREAM_AUTOMATION_PROMPT,
         "status": "ACTIVE",
         "rrule": "FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH,FR,SA;BYHOUR=13;BYMINUTE=0",
-        "model": "gpt-5.4",
-        "reasoning_effort": "xhigh",
+        "model_policy": AUTOMATION_MODEL_POLICY,
+        "reasoning_effort_policy": AUTOMATION_REASONING_EFFORT_POLICY,
         "execution_environment": "local",
     },
     {
@@ -113,8 +122,8 @@ REPO_AUTOMATION_SPECS = (
         "prompt": ARCHITECT_AUTOMATION_PROMPT,
         "status": "ACTIVE",
         "rrule": "FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH,FR,SA;BYHOUR=14;BYMINUTE=0",
-        "model": "gpt-5.4",
-        "reasoning_effort": "xhigh",
+        "model_policy": AUTOMATION_MODEL_POLICY,
+        "reasoning_effort_policy": AUTOMATION_REASONING_EFFORT_POLICY,
         "execution_environment": "local",
     },
 )
@@ -158,6 +167,132 @@ def automation_toml_path(automation_id: str, codex_home: Path | None = None) -> 
 def global_agents_path(codex_home: Path | None = None) -> Path:
     home = codex_home or default_codex_home()
     return home / GLOBAL_AGENTS_FILENAME
+
+
+def codex_config_path(codex_home: Path | None = None) -> Path:
+    home = codex_home or default_codex_home()
+    return home / "config.toml"
+
+
+def models_cache_path(codex_home: Path | None = None) -> Path:
+    home = codex_home or default_codex_home()
+    return home / "models_cache.json"
+
+
+def _load_toml_object(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        with path.open("rb") as handle:
+            payload = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _load_models_cache(codex_home: Path | None = None) -> list[dict[str, Any]]:
+    path = models_cache_path(codex_home)
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    models = payload.get("models", []) if isinstance(payload, dict) else []
+    return [item for item in models if isinstance(item, dict)]
+
+
+def _supported_reasoning_efforts(model: dict[str, Any]) -> list[str]:
+    raw_levels = model.get("supported_reasoning_levels", [])
+    efforts: list[str] = []
+    if isinstance(raw_levels, list):
+        for item in raw_levels:
+            if isinstance(item, dict):
+                effort = str(item.get("effort", "") or "").strip()
+            else:
+                effort = str(item or "").strip()
+            if effort:
+                efforts.append(effort)
+    return efforts
+
+
+def _general_model_version_key(slug: str) -> tuple[int, ...] | None:
+    match = re.fullmatch(r"gpt-(\d+(?:\.\d+)*)", slug.strip().lower())
+    if not match:
+        return None
+    return tuple(int(part) for part in match.group(1).split("."))
+
+
+def _config_model(codex_home: Path | None = None) -> str:
+    payload = _load_toml_object(codex_config_path(codex_home))
+    return str(payload.get("model", "") or "").strip()
+
+
+def _config_reasoning_effort(codex_home: Path | None = None) -> str:
+    payload = _load_toml_object(codex_config_path(codex_home))
+    return str(payload.get("model_reasoning_effort", "") or "").strip()
+
+
+def resolve_automation_model(codex_home: Path | None = None) -> str:
+    env_value = str(os.environ.get(AUTOMATION_MODEL_ENV_VAR, "") or "").strip()
+    if env_value:
+        return env_value
+
+    models = _load_models_cache(codex_home)
+    candidates: list[tuple[tuple[int, ...], str]] = []
+    for model in models:
+        slug = str(model.get("slug", "") or "").strip()
+        version_key = _general_model_version_key(slug)
+        if version_key is None:
+            continue
+        candidates.append((version_key, slug))
+    if candidates:
+        return sorted(candidates, key=lambda item: item[0])[-1][1]
+
+    configured_model = _config_model(codex_home)
+    if configured_model:
+        return configured_model
+    return AUTOMATION_FALLBACK_MODEL
+
+
+def resolve_automation_reasoning_effort(
+    codex_home: Path | None = None,
+    *,
+    model: str | None = None,
+) -> str:
+    env_value = str(os.environ.get(AUTOMATION_REASONING_EFFORT_ENV_VAR, "") or "").strip()
+    if env_value:
+        return env_value
+
+    selected_model = str(model or resolve_automation_model(codex_home)).strip()
+    models = _load_models_cache(codex_home)
+    for model_payload in models:
+        if str(model_payload.get("slug", "") or "").strip() != selected_model:
+            continue
+        supported = _supported_reasoning_efforts(model_payload)
+        if AUTOMATION_FALLBACK_REASONING_EFFORT in supported:
+            return AUTOMATION_FALLBACK_REASONING_EFFORT
+        ranked = [item for item in REASONING_EFFORT_ORDER if item in supported]
+        if ranked:
+            return ranked[-1]
+
+    configured_effort = _config_reasoning_effort(codex_home)
+    if configured_effort:
+        return configured_effort
+    return AUTOMATION_FALLBACK_REASONING_EFFORT
+
+
+def resolve_automation_runtime(codex_home: Path | None = None) -> dict[str, str]:
+    model = resolve_automation_model(codex_home)
+    reasoning_effort = resolve_automation_reasoning_effort(codex_home, model=model)
+    return {
+        "model": model,
+        "reasoning_effort": reasoning_effort,
+        "model_policy": AUTOMATION_MODEL_POLICY,
+        "reasoning_effort_policy": AUTOMATION_REASONING_EFFORT_POLICY,
+        "model_env_var": AUTOMATION_MODEL_ENV_VAR,
+        "reasoning_effort_env_var": AUTOMATION_REASONING_EFFORT_ENV_VAR,
+    }
 
 
 def _render_template(text: str, replacements: dict[str, str]) -> str:
@@ -421,7 +556,12 @@ def install_codex_shell_tools(
     }
 
 
-def _automation_spec_payload(spec: dict[str, str], repo_root: Path) -> dict[str, Any]:
+def _automation_spec_payload(
+    spec: dict[str, str],
+    repo_root: Path,
+    codex_home: Path | None = None,
+) -> dict[str, Any]:
+    runtime = resolve_automation_runtime(codex_home)
     return {
         "version": 1,
         "id": spec["id"],
@@ -430,8 +570,13 @@ def _automation_spec_payload(spec: dict[str, str], repo_root: Path) -> dict[str,
         "prompt": spec["prompt"],
         "status": spec["status"],
         "rrule": spec["rrule"],
-        "model": spec["model"],
-        "reasoning_effort": spec["reasoning_effort"],
+        "model": runtime["model"],
+        "reasoning_effort": runtime["reasoning_effort"],
+        "model_policy": spec.get("model_policy", runtime["model_policy"]),
+        "reasoning_effort_policy": spec.get(
+            "reasoning_effort_policy",
+            runtime["reasoning_effort_policy"],
+        ),
         "execution_environment": spec["execution_environment"],
         "cwds": [str(repo_root)],
     }
@@ -460,6 +605,8 @@ def _write_automation_toml(path: Path, payload: dict[str, Any]) -> None:
         f"rrule = {json.dumps(payload['rrule'], ensure_ascii=False)}",
         f"model = {json.dumps(payload['model'], ensure_ascii=False)}",
         f"reasoning_effort = {json.dumps(payload['reasoning_effort'], ensure_ascii=False)}",
+        f"model_policy = {json.dumps(payload['model_policy'], ensure_ascii=False)}",
+        f"reasoning_effort_policy = {json.dumps(payload['reasoning_effort_policy'], ensure_ascii=False)}",
         f"execution_environment = {json.dumps(payload['execution_environment'], ensure_ascii=False)}",
         f"cwds = {json.dumps(list(payload['cwds']), ensure_ascii=False)}",
         f"created_at = {int(payload['created_at'])}",
@@ -478,7 +625,7 @@ def install_repo_automations(repo_root: Path, codex_home: Path | None = None) ->
     for spec in REPO_AUTOMATION_SPECS:
         path = automation_toml_path(spec["id"], home)
         existing = _load_automation_toml(path)
-        payload = _automation_spec_payload(spec, repo_root)
+        payload = _automation_spec_payload(spec, repo_root, codex_home=home)
         payload["created_at"] = int(existing.get("created_at") or now_ms)
         payload["updated_at"] = now_ms
         _write_automation_toml(path, payload)
@@ -489,6 +636,10 @@ def install_repo_automations(repo_root: Path, codex_home: Path | None = None) ->
                 "name": payload["name"],
                 "path": str(path),
                 "rrule": payload["rrule"],
+                "model": payload["model"],
+                "reasoning_effort": payload["reasoning_effort"],
+                "model_policy": payload["model_policy"],
+                "reasoning_effort_policy": payload["reasoning_effort_policy"],
                 "execution_environment": payload["execution_environment"],
                 "cwds": list(payload["cwds"]),
             }
@@ -533,6 +684,7 @@ def install_codex_integration(
         rg_source=rg_source,
         persist_user_path=persist_user_shell_path,
     )
+    automation_runtime = resolve_automation_runtime(home)
     automations = install_repo_automations(repo_root=repo_root, codex_home=home)
 
     manifest = {
@@ -546,6 +698,7 @@ def install_codex_integration(
         "global_agents_path": global_agents,
         "env_var_name": KB_ROOT_ENV_VAR,
         "shell_tools": shell_tools,
+        "automation_runtime": automation_runtime,
         "automation_ids": [item["id"] for item in automations],
         "automations": automations,
         "installed_at": utc_now_iso(),
@@ -618,6 +771,11 @@ def build_installation_check(
             "Global skill default_prompt does not contain the expected KB postflight reminder. "
             "Re-run the installer to refresh the installed prompt."
         )
+    if openai_text and "skill/plugin usage lesson" not in openai_text:
+        issues.append(
+            "Global skill default_prompt does not mention skill/plugin usage lessons as KB signals. "
+            "Re-run the installer to refresh the installed prompt."
+        )
     if not global_agents.exists():
         issues.append(
             f"Global AGENTS defaults file is missing: {global_agents}. "
@@ -646,6 +804,11 @@ def build_installation_check(
             "Global AGENTS defaults do not contain the expected explicit KB postflight check wording. "
             "Re-run the installer to refresh the session-wide defaults."
         )
+    if global_agents_text and "skill/plugin usage" not in global_agents_text:
+        issues.append(
+            "Global AGENTS defaults do not mention skill/plugin usage lessons as KB signals. "
+            "Re-run the installer to refresh the session-wide defaults."
+        )
 
     shell_bin = Path(
         str(shell_tools_manifest.get("shell_bin_dir", "") or codex_shell_bin_dir())
@@ -669,8 +832,9 @@ def build_installation_check(
 
     automation_checks: list[dict[str, Any]] = []
     expected_repo_root = repo_root or (Path(manifest_root_raw) if manifest_root_raw else Path("."))
+    automation_runtime = resolve_automation_runtime(home)
     for spec in REPO_AUTOMATION_SPECS:
-        expected = _automation_spec_payload(spec, expected_repo_root)
+        expected = _automation_spec_payload(spec, expected_repo_root, codex_home=home)
         path = automation_toml_path(spec["id"], home)
         payload = _load_automation_toml(path)
         issues_for_automation: list[str] = []
@@ -699,11 +863,20 @@ def build_installation_check(
                 )
             if str(payload.get("model", "") or "") != expected["model"]:
                 issues_for_automation.append(
-                    f"Automation {expected['id']} should use model={expected['model']}."
+                    f"Automation {expected['id']} should use model={expected['model']} from policy={expected['model_policy']}."
                 )
             if str(payload.get("reasoning_effort", "") or "") != expected["reasoning_effort"]:
                 issues_for_automation.append(
-                    f"Automation {expected['id']} should use reasoning_effort={expected['reasoning_effort']}."
+                    f"Automation {expected['id']} should use reasoning_effort={expected['reasoning_effort']} from policy={expected['reasoning_effort_policy']}."
+                )
+            if str(payload.get("model_policy", "") or "") != expected["model_policy"]:
+                issues_for_automation.append(
+                    f"Automation {expected['id']} should record model_policy={expected['model_policy']}."
+                )
+            if str(payload.get("reasoning_effort_policy", "") or "") != expected["reasoning_effort_policy"]:
+                issues_for_automation.append(
+                    "Automation "
+                    f"{expected['id']} should record reasoning_effort_policy={expected['reasoning_effort_policy']}."
                 )
             if str(payload.get("execution_environment", "") or "") != expected["execution_environment"]:
                 issues_for_automation.append(
@@ -806,6 +979,7 @@ def build_installation_check(
         and "record a KB follow-up observation" in openai_text
         and "required default preflight" in openai_text
     )
+    global_skill_skill_usage = bool(openai_text and "skill/plugin usage lesson" in openai_text)
     global_agents_present = global_agents.exists()
     global_agents_managed = bool(
         global_agents_text
@@ -814,6 +988,7 @@ def build_installation_check(
     )
     global_agents_preflight = bool(global_agents_text and "$predictive-kb-preflight" in global_agents_text)
     global_agents_postflight = bool(global_agents_text and "explicit KB postflight check" in global_agents_text)
+    global_agents_skill_usage = bool(global_agents_text and "skill/plugin usage" in global_agents_text)
     kb_sleep_ok = not automation_issue_map.get("kb-sleep")
     kb_dream_ok = not automation_issue_map.get("kb-dream")
     kb_architect_ok = not automation_issue_map.get("kb-architect")
@@ -824,6 +999,8 @@ def build_installation_check(
         and global_agents_managed
         and global_agents_preflight
         and global_agents_postflight
+        and global_skill_skill_usage
+        and global_agents_skill_usage
     )
     checklist = [
         _checklist_item(
@@ -842,6 +1019,12 @@ def build_installation_check(
             "global_skill_postflight",
             "Global predictive KB prompt requires KB preflight and postflight reminders",
             global_skill_postflight,
+            f"openai_path={openai_path}",
+        ),
+        _checklist_item(
+            "global_skill_skill_usage",
+            "Global predictive KB prompt treats skill/plugin lessons as recordable KB signals",
+            global_skill_skill_usage,
             f"openai_path={openai_path}",
         ),
         _checklist_item(
@@ -866,6 +1049,12 @@ def build_installation_check(
             "global_agents_postflight",
             "Global AGENTS defaults require an explicit KB postflight check",
             global_agents_postflight,
+            f"global_agents_path={global_agents}",
+        ),
+        _checklist_item(
+            "global_agents_skill_usage",
+            "Global AGENTS defaults treat skill/plugin lessons as recordable KB signals",
+            global_agents_skill_usage,
             f"global_agents_path={global_agents}",
         ),
         _checklist_item(
@@ -918,6 +1107,7 @@ def build_installation_check(
             "git_shim_path": str(git_shim_path),
             "rg_path": str(rg_path),
         },
+        "automation_runtime": automation_runtime,
         "checklist": checklist,
         "automation_checks": automation_checks,
         "issues": issues,

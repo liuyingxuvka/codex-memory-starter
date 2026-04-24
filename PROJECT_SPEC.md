@@ -403,6 +403,7 @@ The skill should do the following:
 10. When a reusable lesson is specifically about how the current model or runtime behaves, it may still be captured as a valid card if the runtime identity and triggering conditions are explicit enough to audit later.
 11. When recording such a lesson, preserve both the runtime-facing route and any workflow or prompting routes that materially shaped the behavior, so later retrieval can find the card from more than one valid direction.
 12. When a reusable lesson is specifically about how a user tends to respond, prefer a private predictive card that captures the task condition and likely user preference or reaction, rather than a vague impression about the user's personality.
+13. When a reusable lesson is specifically about using another Codex skill or plugin, capture it as valid KB evidence when the skill choice, ordering, combination, fallback, or failure mode materially changes the result. Preserve both a skill-facing route such as `codex/workflow/skills` or `codex/skill-use/<skill-name>` and the task-facing route that made the skill relevant.
 
 For non-trivial work, KB postflight should be treated as part of done rather than optional housekeeping. Before a task is considered complete, Codex should explicitly check whether the task exposed:
 
@@ -437,7 +438,8 @@ The semantic maintenance boundary should preserve AI agency without allowing unc
 
 - thresholds, repeated reviews, and weak-hit counts are review triggers, not final decisions
 - AI should decide whether a card should be kept, rewritten, promoted, demoted, deprecated, split, or merged after reading the card and supporting evidence
-- tooling should require an explicit semantic-review plan with evidence ids, rationale, risk level, expected retrieval effect, and rollback notes before applying meaning-bearing changes
+- tooling should require an explicit semantic-review plan with evidence ids, rationale, risk level, utility assessment, expected retrieval effect, and rollback notes before applying meaning-bearing changes
+- keep, rewrite, confidence-adjustment, and promotion decisions must judge the card as future-useful; demotion and deprecation are the supported path for cards judged low-utility, obsolete, misleading, unclear, or insufficiently evidenced
 - each semantic-review apply run should modify at most 3 trusted cards, including trusted rewrites, confidence changes, deprecations, demotions, and candidate promotions into trusted scope
 - candidate and trusted-card text changes should trigger display-translation cleanup before the sleep pass is considered complete
 
@@ -476,14 +478,15 @@ The repository should distinguish between:
 
 The correct handling is different for each case:
 
-- **weak or one-off observations** should usually be forgotten by the retrieval surface but retained in history
-- **complete single observations** may create low-confidence candidate scaffolds when the route is specific, the task summary is present, and the observation already states scenario, action, and observed result; these are retrieval seeds, not trusted rules
+- **weak, one-off, or low-utility observations** should usually be forgotten by the retrieval surface but retained in history
+- **complete and future-useful single observations** may create low-confidence candidate scaffolds when the route is specific, the task summary is present, and the observation already states scenario, action, observed result, and concrete operational use; these are retrieval seeds, not trusted rules
 - **rejected candidates** should leave a rejection trace in history and should not remain in the active candidate queue
 - **obsolete trusted cards** should usually become `deprecated`, not silently deleted
 
 In practice, this means:
 
 - if an observation is clearly one-off, generic, noisy, or not reusable, scheduled maintenance may mark it as ignored or non-reusable and leave it in history only
+- if an observation has complete predictive structure but no concrete future action-selection value, scheduled maintenance should keep it history-only rather than creating a card
 - if a candidate is reviewed and not promoted, maintenance should record that rejection, including why it was rejected and which evidence supported the decision
 - if a trusted card is no longer reliable, maintenance should prefer `status: deprecated` plus updated notes over deletion
 
@@ -621,7 +624,7 @@ As the repository evolves, it is reasonable to add a consolidation or â€œsleepâ€
 
 - read accumulated feedback and usage history
 - identify cards that need clarification, scope adjustment, splitting, merging, re-scoring, or deprecation
-- let AI decide the needed card and taxonomy updates
+- let AI decide the needed card and taxonomy updates, including whether a card or observation has enough future utility to remain on the retrieval surface
 - use tooling to apply the chosen updates to cards and taxonomy
 - write snapshots and change reasons before finalizing updates
 - preserve enough state to support rollback
@@ -786,6 +789,15 @@ Observations about **model/runtime behavior** should follow the same rule. They 
 
 If the runtime identity is uncertain, the observation should explicitly scope itself to the known environment level rather than claiming an exact model version.
 
+Observations about **skill or plugin use** should follow the same predictive rule. They are valid when they answer:
+
+- which Codex skill or plugin was selected, skipped, sequenced, or used as a fallback
+- under what task conditions that skill behavior mattered
+- what outcome changed because of the skill choice or skill limitation
+- how future Codex work should adapt its skill invocation, ordering, or fallback behavior
+
+These observations should avoid generic praise for a skill. The useful evidence is the trigger condition, action, and observed result, especially when one skill should be invoked earlier, paired with another skill, or avoided for a particular class of task.
+
 Observations about a **specific user** should also stay predictive and bounded. They are strongest when they answer:
 
 - in what task or interaction context the behavior appeared
@@ -799,6 +811,8 @@ When later card creation is likely, Codex should preserve enough route context t
 
 - a runtime-focused route such as `codex/runtime-behavior/...` or `ai/runtime/...`
 - a task-facing route such as `prompting/...`, `codex/workflow/...`, or another route that captures the condition that exposed the behavior
+
+Skill-use observations should be similarly reachable from both a skill-facing route, such as `codex/workflow/skills` or `codex/skill-use/<skill-name>`, and the task-facing route that made the skill relevant.
 
 Card creation should then happen mainly during scheduled AI consolidation:
 
@@ -951,6 +965,8 @@ The default cadence is after Sleep and Dream, for example:
 - `KB Architect`: 14:00
 
 The installer should provision all three repository-managed automations, and the install check should verify all three.
+
+Automation specs must encode model intent as `model_policy = "strongest-available"` and `reasoning_effort_policy = "deepest"` rather than pinning a fixed model slug. During installation, the repo installer resolves that policy against the current machine's Codex model cache/config, writes the concrete runtime values into the automation files, and records the policy fields so future machines can pick newer models without changing the spec.
 
 ## 11. Implementation Plan for Codex
 

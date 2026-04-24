@@ -24,6 +24,7 @@ from local_kb.consolidate_events import (
     events_by_id,
     has_contrastive_evidence,
     has_predictive_evidence,
+    has_predictive_utility,
     normalize_entry_ids,
     normalize_text_list,
     route_label,
@@ -240,13 +241,16 @@ def suggest_new_candidate_scaffold(
     alternatives, contrastive_event_count = _build_contrastive_alternatives(supporting_events)
 
     event_count = int(action.get("event_count", 0) or 0)
-    seed_candidate = event_count == 1
+    future_utility_count = sum(1 for event in supporting_events if has_predictive_utility(event))
+    seed_candidate = event_count == 1 and future_utility_count >= 1
     if seed_candidate:
         if_notes_parts = [
-            "Auto-created from 1 complete predictive observation as a low-confidence seed candidate."
+            "Auto-created from 1 complete, future-useful predictive observation as a low-confidence seed candidate."
         ]
     else:
         if_notes_parts = [f"Auto-created from {event_count} grouped new-candidate observations."]
+        if future_utility_count:
+            if_notes_parts.append(f"{future_utility_count} supporting observations include concrete future utility.")
     if task_summaries:
         if_notes_parts.append(f"Example task summaries: {_summarize_text_examples(task_summaries)}.")
     if scenarios:
@@ -609,8 +613,10 @@ def suggest_observation_disposition(
     if action.get("action_type") != "review-observation-evidence":
         return None
     predictive_summary = summarize_predictive_evidence(supporting_events)
-    if predictive_summary["complete_event_count"] > 0:
+    if predictive_summary["future_utility_event_count"] > 0:
         recommendation = "rewrite-to-predictive-card-evidence"
+    elif predictive_summary["complete_event_count"] > 0:
+        recommendation = "keep-history-only-or-ignore-low-utility"
     elif int(action.get("event_count", 0) or 0) > 1:
         recommendation = "rewrite-or-split-observations"
     else:
@@ -619,6 +625,8 @@ def suggest_observation_disposition(
         "recommendation": recommendation,
         "complete_event_count": predictive_summary["complete_event_count"],
         "incomplete_event_count": predictive_summary["incomplete_event_count"],
+        "future_utility_event_count": predictive_summary["future_utility_event_count"],
+        "low_utility_event_count": predictive_summary["low_utility_event_count"],
     }
 
 
@@ -1101,33 +1109,62 @@ def describe_apply_eligibility(
         }
     support_count = int(action.get("event_count", 0) or 0)
     complete_predictive_count = sum(1 for event in supporting_events if has_predictive_evidence(event))
+    future_utility_count = sum(1 for event in supporting_events if has_predictive_utility(event))
     if support_count >= 2:
+        if future_utility_count < 1:
+            return {
+                "supported_mode": APPLY_MODE_NEW_CANDIDATES,
+                "eligible": False,
+                "candidate_creation_mode": "grouped",
+                "complete_predictive_event_count": complete_predictive_count,
+                "future_utility_event_count": future_utility_count,
+                "reason": (
+                    "Automatic candidate creation requires future utility: a concrete operational_use "
+                    "and reusable action-selection value."
+                ),
+            }
         return {
             "supported_mode": APPLY_MODE_NEW_CANDIDATES,
             "eligible": True,
             "candidate_creation_mode": "grouped",
             "complete_predictive_event_count": complete_predictive_count,
+            "future_utility_event_count": future_utility_count,
             "reason": "Eligible for conservative candidate scaffold creation.",
         }
     if support_count == 1:
-        if complete_predictive_count >= 1:
+        if future_utility_count >= 1:
             return {
                 "supported_mode": APPLY_MODE_NEW_CANDIDATES,
                 "eligible": True,
                 "candidate_creation_mode": "seed",
                 "complete_predictive_event_count": complete_predictive_count,
-                "reason": "Eligible for low-confidence seed candidate creation from one complete predictive observation.",
+                "future_utility_event_count": future_utility_count,
+                "reason": "Eligible for low-confidence seed candidate creation from one complete, future-useful predictive observation.",
+            }
+        if complete_predictive_count >= 1:
+            return {
+                "supported_mode": APPLY_MODE_NEW_CANDIDATES,
+                "eligible": False,
+                "candidate_creation_mode": "seed",
+                "complete_predictive_event_count": complete_predictive_count,
+                "future_utility_event_count": future_utility_count,
+                "reason": (
+                    "Single-observation candidate creation requires future utility: a concrete operational_use "
+                    "and reusable action-selection value."
+                ),
             }
         return {
             "supported_mode": APPLY_MODE_NEW_CANDIDATES,
             "eligible": False,
             "complete_predictive_event_count": complete_predictive_count,
+            "future_utility_event_count": future_utility_count,
             "reason": "Single-observation candidate creation requires complete predictive evidence: scenario, action_taken, and observed_result.",
         }
     return {
         "supported_mode": APPLY_MODE_NEW_CANDIDATES,
         "eligible": False,
         "complete_predictive_event_count": complete_predictive_count,
+        "future_utility_event_count": future_utility_count,
         "reason": "Automatic apply requires at least 1 supporting new-candidate observation.",
     }
 

@@ -23,6 +23,7 @@ from local_kb.consolidate_events import (
     events_by_id,
     group_candidate_actions,
     has_predictive_evidence,
+    has_predictive_utility,
     history_events_path,
     load_history_events,
     normalize_apply_mode,
@@ -44,12 +45,15 @@ from local_kb.i18n import ZH_CN, merge_i18n_payload, missing_i18n_fields
 from local_kb.i18n_maintenance import build_i18n_actions, load_i18n_plan, translation_for_entry
 from local_kb.semantic_review import (
     SEMANTIC_REVIEW_AUTO_APPLY_DECISIONS,
+    SEMANTIC_REVIEW_REMOVAL_DECISIONS,
+    SEMANTIC_REVIEW_SURFACE_DECISIONS,
     is_semantic_review_action,
     is_trusted_card,
     normalize_semantic_decision,
     normalize_semantic_evidence_event_ids,
     normalize_semantic_review_plan,
     normalize_semantic_risk,
+    normalize_semantic_utility_assessment,
     semantic_review_changed_fields,
     semantic_review_confidence,
     semantic_review_decisions_by_action_key,
@@ -273,7 +277,8 @@ def build_auto_candidate_entry(
     ]
     event_count = int(action["event_count"])
     complete_predictive_count = sum(1 for event in supporting_events if has_predictive_evidence(event))
-    seed_candidate = event_count == 1 and complete_predictive_count >= 1
+    future_utility_count = sum(1 for event in supporting_events if has_predictive_utility(event))
+    seed_candidate = event_count == 1 and future_utility_count >= 1
     tags = sorted(set(route_segments + ["auto-generated", "consolidation"]))
     if seed_candidate:
         tags = sorted(set(tags + ["seed-candidate", "low-confidence"]))
@@ -343,6 +348,7 @@ def build_auto_candidate_entry(
                 "route": route_ref,
                 "candidate_creation_mode": "seed" if seed_candidate else "grouped",
                 "complete_predictive_event_count": complete_predictive_count,
+                "future_utility_event_count": future_utility_count,
                 "event_ids": list(action["event_ids"]),
             }
         ],
@@ -1021,43 +1027,63 @@ def _semantic_review_validate_decision(
     action: dict[str, Any],
     decision: dict[str, Any],
     current_payload: dict[str, Any],
-) -> tuple[str, list[str], str, str]:
+) -> tuple[str, list[str], str, dict[str, str], str]:
     decision_name = normalize_semantic_decision(decision.get("decision"))
     if not decision_name:
-        return "", [], "", "Unsupported or missing semantic review decision."
+        return "", [], "", {}, "Unsupported or missing semantic review decision."
     if decision_name not in SEMANTIC_REVIEW_AUTO_APPLY_DECISIONS:
-        return decision_name, [], "", f"Decision {decision_name} is proposal-only in the current apply tool."
+        return decision_name, [], "", {}, f"Decision {decision_name} is proposal-only in the current apply tool."
     if not bool(decision.get("apply", False)):
-        return decision_name, [], "", "Semantic review decisions must set apply: true before they are recorded or applied."
+        return decision_name, [], "", {}, "Semantic review decisions must set apply: true before they are recorded or applied."
 
     entry_id = str(action.get("target", {}).get("ref", "") or "").strip()
     decision_entry_id = str(decision.get("entry_id", "") or "").strip()
     if decision_entry_id and decision_entry_id != entry_id:
-        return decision_name, [], "", f"Decision entry_id {decision_entry_id} does not match action target {entry_id}."
+        return decision_name, [], "", {}, f"Decision entry_id {decision_entry_id} does not match action target {entry_id}."
 
     evidence_event_ids = normalize_semantic_evidence_event_ids(decision)
     action_event_ids = {str(event_id).strip() for event_id in action.get("event_ids", []) if str(event_id).strip()}
     if not evidence_event_ids:
-        return decision_name, [], "", "Semantic review decisions require evidence_event_ids."
+        return decision_name, [], "", {}, "Semantic review decisions require evidence_event_ids."
     if action_event_ids and not set(evidence_event_ids).issubset(action_event_ids):
-        return decision_name, evidence_event_ids, "", "Semantic review evidence_event_ids must come from the current action."
+        return decision_name, evidence_event_ids, "", {}, "Semantic review evidence_event_ids must come from the current action."
 
     rationale = str(decision.get("rationale", "") or "").strip()
     expected_effect = str(decision.get("expected_retrieval_effect", "") or "").strip()
     rollback_note = str(decision.get("rollback_note", "") or "").strip()
     if not rationale:
-        return decision_name, evidence_event_ids, "", "Semantic review decisions require rationale."
+        return decision_name, evidence_event_ids, "", {}, "Semantic review decisions require rationale."
+    utility_assessment = normalize_semantic_utility_assessment(decision.get("utility_assessment"))
+    utility_judgment = utility_assessment.get("judgment", "")
+    if not utility_judgment:
+        return decision_name, evidence_event_ids, "", utility_assessment, "Semantic review decisions require utility_assessment.judgment."
+    if decision_name in SEMANTIC_REVIEW_SURFACE_DECISIONS and utility_judgment != "useful":
+        return (
+            decision_name,
+            evidence_event_ids,
+            "",
+            utility_assessment,
+            "Surface-retaining semantic review decisions require utility_assessment.judgment: useful.",
+        )
+    if decision_name in SEMANTIC_REVIEW_REMOVAL_DECISIONS and utility_judgment == "useful":
+        return (
+            decision_name,
+            evidence_event_ids,
+            "",
+            utility_assessment,
+            "Demote/deprecate semantic review decisions require a non-useful utility assessment.",
+        )
     if decision_name != "keep" and not expected_effect:
-        return decision_name, evidence_event_ids, "", "Semantic review file changes require expected_retrieval_effect."
+        return decision_name, evidence_event_ids, "", utility_assessment, "Semantic review file changes require expected_retrieval_effect."
     if decision_name != "keep" and not rollback_note:
-        return decision_name, evidence_event_ids, "", "Semantic review file changes require rollback_note."
+        return decision_name, evidence_event_ids, "", utility_assessment, "Semantic review file changes require rollback_note."
 
     risk = normalize_semantic_risk(
         decision.get("risk"),
         trusted_surface=is_trusted_card(current_payload),
         decision=decision_name,
     )
-    return decision_name, evidence_event_ids, risk, ""
+    return decision_name, evidence_event_ids, risk, utility_assessment, ""
 
 
 def _record_semantic_review_event(
@@ -1068,6 +1094,7 @@ def _record_semantic_review_event(
     decision: dict[str, Any],
     decision_name: str,
     risk: str,
+    utility_assessment: dict[str, str],
     evidence_event_ids: list[str],
     current_payload: dict[str, Any],
     updated_payload: dict[str, Any],
@@ -1102,6 +1129,7 @@ def _record_semantic_review_event(
             "semantic_review_plan_path": plan_path_label,
             "decision": decision_name,
             "risk": risk,
+            "utility_assessment": dict(utility_assessment),
             "applied_file_change": applied_file_change,
             "changed_fields": changed_fields,
             "previous_entry_path": relative_repo_path(repo_root, current_path),
@@ -1166,7 +1194,7 @@ def apply_semantic_review_actions(
 
         current_payload = deepcopy(entry_lookup[entry_id])
         current_path = entry_path_lookup[entry_id]
-        decision_name, evidence_event_ids, risk, validation_error = _semantic_review_validate_decision(
+        decision_name, evidence_event_ids, risk, utility_assessment, validation_error = _semantic_review_validate_decision(
             action=action,
             decision=decision,
             current_payload=current_payload,
@@ -1183,6 +1211,7 @@ def apply_semantic_review_actions(
                 decision=decision,
                 decision_name=decision_name,
                 risk=risk,
+                utility_assessment=utility_assessment,
                 evidence_event_ids=evidence_event_ids,
                 current_payload=current_payload,
                 updated_payload=current_payload,
@@ -1200,6 +1229,7 @@ def apply_semantic_review_actions(
                     "entry_path": relative_repo_path(repo_root, current_path),
                     "decision": decision_name,
                     "risk": risk,
+                    "utility_assessment": dict(utility_assessment),
                     "event_ids": evidence_event_ids,
                 }
             )
@@ -1305,6 +1335,7 @@ def apply_semantic_review_actions(
             decision=decision,
             decision_name=decision_name,
             risk=risk,
+            utility_assessment=utility_assessment,
             evidence_event_ids=evidence_event_ids,
             current_payload=current_payload,
             updated_payload=updated_payload,
@@ -1323,6 +1354,7 @@ def apply_semantic_review_actions(
                 "entry_path": relative_repo_path(repo_root, target_path),
                 "decision": decision_name,
                 "risk": risk,
+                "utility_assessment": dict(utility_assessment),
                 "changed_fields": changed_fields,
                 "event_ids": evidence_event_ids,
                 "previous_entry": current_payload,

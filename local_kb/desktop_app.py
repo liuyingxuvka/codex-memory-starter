@@ -62,7 +62,16 @@ MIN_WINDOW_SIZE = (1080, 720)
 SIDEBAR_WIDTH = 344
 MAIN_MARGIN_X = 36
 MAIN_MAX_COLUMNS = 5
-ASSET_DIR = Path(__file__).resolve().parents[1] / "assets"
+
+
+def _runtime_asset_root() -> Path:
+    bundle_root = getattr(sys, "_MEIPASS", "")
+    if bundle_root:
+        return Path(bundle_root)
+    return Path(__file__).resolve().parents[1]
+
+
+ASSET_DIR = _runtime_asset_root() / "assets"
 APP_ICON_PATH = ASSET_DIR / "khaos-brain-icon.png"
 BRAND_ICON_PATH = ASSET_DIR / "khaos-brain-icon-sidebar.png"
 PROJECT_GITHUB_URL = "https://github.com/liuyingxuvka/Khaos-Brain"

@@ -2,6 +2,7 @@
 
 - For almost any coding, planning, writing, or repository task, invoke `$predictive-kb-preflight` before starting the main work. Treat this as a required default recall step, not optional housekeeping.
 - This also applies to release publishing, release audits, README presentation passes, public template cleanup, and repository-boundary or privacy review.
-- For non-trivial tasks, do not treat the work as complete until one explicit KB postflight check has been performed. If the task exposed a reusable lesson, a miss, a route gap, a card weakness, or a KB-process failure, record one structured observation before ending the task.
+- For non-trivial tasks, do not treat the work as complete until one explicit KB postflight check has been performed. If the task exposed a reusable lesson, a skill/plugin usage lesson, a miss, a route gap, a card weakness, or a KB-process failure, record one structured observation before ending the task.
+- Treat lessons about Codex skill/plugin selection, ordering, combination, fallback, or limitations as valid KB signals when they materially change task outcomes.
 - Keep trusted-card rewrites, candidate promotion, and deeper taxonomy maintenance in the dedicated KB maintenance thread unless the current task is explicitly about maintaining the KB itself.
 - When working inside the predictive KB repository and asked to install, enable, bootstrap, or verify the system on a machine, run `python scripts/install_codex_kb.py --json` and then `python scripts/install_codex_kb.py --check --json` before doing anything else.

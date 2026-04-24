@@ -4,7 +4,7 @@ This runbook defines the `kb-architect` mechanism-maintenance lane. It runs afte
 
 `PROJECT_SPEC.md` remains authoritative. If this runbook and the spec disagree, follow the spec and simplify this runbook.
 
-The repository installer is expected to provision a repo-managed `KB Architect` cron automation under `$CODEX_HOME/automations/`. Re-running `python scripts/install_codex_kb.py --json` on another machine should refresh that schedule automatically.
+The repository installer is expected to provision a repo-managed `KB Architect` cron automation under `$CODEX_HOME/automations/`. Re-running `python scripts/install_codex_kb.py --json` on another machine should refresh that schedule automatically. The automation spec should keep model selection policy-based: strongest available model plus deepest supported reasoning, resolved during install rather than pinned to a specific model version.
 
 ## Purpose
 

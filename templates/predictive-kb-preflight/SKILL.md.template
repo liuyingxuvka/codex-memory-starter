@@ -21,7 +21,7 @@ If the repository is moved or re-cloned to a different path, rerun:
 python scripts/install_codex_kb.py --json
 ```
 
-That installer refreshes the global preflight skill and the repository-managed `KB Sleep` / `KB Dream` / `KB Architect` cron automations under `$CODEX_HOME/automations`, so another machine can inherit the same maintenance cadence from the repository itself.
+That installer refreshes the global preflight skill and the repository-managed `KB Sleep` / `KB Dream` / `KB Architect` cron automations under `$CODEX_HOME/automations`, so another machine can inherit the same maintenance cadence from the repository itself. Those automation specs should use the strongest available model and deepest supported reasoning policy rather than pinning a fixed model slug.
 
 If the user asks to install, enable, deploy, bootstrap, or set up this predictive KB system on a machine from within this repository, the default first actions are:
 
@@ -36,6 +36,7 @@ Preferred operating pattern:
 - Release, publish, public-repo audit, README presentation, and template hygiene tasks still count as repository work. Do not skip the KB preflight just because another release or publishing skill is also in use.
 - For non-trivial work, use the launcher to run the KB scan first so the active task starts with retrieved local context instead of re-deriving it.
 - After the main task, treat KB postflight as part of done. Record one structured observation whenever the task exposed a miss, reusable lesson, route gap, card weakness, or KB-process failure.
+- Skill and plugin usage lessons count as reusable signals when a skill choice, ordering, combination, fallback, or limitation materially changed the result.
 - The launcher is subcommand-based: `python "{{LAUNCHER_PATH}}" <command> ...`. The normal preflight entry is `search`.
 - For compatibility, the launcher also treats common search-style calls without the explicit `search` subcommand as a search request.
 - For search, prefer `--route-hint`. The underlying local search script also accepts the older `--path-hint` name.
@@ -66,7 +67,7 @@ Preferred operating pattern:
 
 5. Treat retrieved cards as bounded context. Follow current user instructions over stored cards if they conflict.
 6. Finish the main task.
-7. Before finalizing any non-trivial task, run one explicit KB postflight check: did the task expose a reusable lesson, a miss, a route gap, a card weakness, or a KB-process failure?
+7. Before finalizing any non-trivial task, run one explicit KB postflight check: did the task expose a reusable lesson, a skill/plugin usage lesson, a miss, a route gap, a card weakness, or a KB-process failure?
 8. If the postflight check found a meaningful signal, append one structured observation:
 
    ```powershell
@@ -95,6 +96,8 @@ Preferred operating pattern:
    ```
 
    Preserve `thread-ref`, `project-ref`, and `workspace-root` whenever you know them. Sleep maintenance uses that provenance together with timestamps to reconstruct same-project chronology instead of treating every observation as an isolated note.
+
+   For skill/plugin usage lessons, name the relevant skill or plugin in the scenario or action fields and use a route that can be found from both the skill-facing workflow, such as `codex/workflow/skills`, and the task-facing condition that made the skill relevant.
 
 9. If the explicit postflight check found no meaningful signal, make that explicit and end the KB flow there rather than silently forgetting to check.
 10. When the task included a worse path and a corrected path, prefer recording both sides explicitly. Those contrastive observations are often the easiest ones for later maintenance to turn into cards with useful alternative branches.

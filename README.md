@@ -1,7 +1,7 @@
 # Khaos Brain
 
-- Repository head (`main`) / 仓库主线（`main`）: `v0.1.14`
-- Latest released version / 最新已发布版本: `v0.1.13`
+- Repository head (`main`) / 仓库主线（`main`）: `v0.2.0`
+- Latest released version / 最新已发布版本: `v0.2.0`
 - Project name / 项目名称: `Khaos Brain`
 - 中文正文在前；后半部分是完整英文镜像。
 - Chinese comes first; the second half is a full English mirror.
@@ -106,7 +106,7 @@ The two screenshots below show the current desktop app in English UI, intended a
 - `KB Architect`
   审阅 Sleep、Dream、安装器、自动化、回滚、验证和 proposal 队列这些运行机制本身；它只用 `Evidence / Impact / Safety` 三项判断，不维护卡片内容，默认每天 `14:00` 运行。
 
-它们不会并发混跑，而且都由安装器写入 Codex 的 automations。
+它们不会并发混跑，而且都由安装器写入 Codex 的 automations。自动化规格不锁定某个模型版本；它记录 `model_policy = "strongest-available"` 和 `reasoning_effort_policy = "deepest"`，安装器会在每台机器上解析成当前可用的最强通用 GPT 模型和该模型支持的最深 reasoning。
 
 所以当你把仓库换到另一台机器时，只要重新让 Codex 安装一次，这套“醒着做事, 睡着整理, 做梦扩边, 下午审阅机制”的维护节律就会一起恢复。
 
@@ -139,6 +139,16 @@ The two screenshots below show the current desktop app in English UI, intended a
 
 对大多数人来说，这比先自己读完整个 README、再手动敲所有命令更自然，也更接近这个项目本来的使用方式。
 
+### 如果你只是想打开桌面版
+
+从 `v0.2.0` 开始，GitHub Release 会附带 Windows 预览版入口 `KhaosBrain.exe`：
+
+- 到 [GitHub Releases](https://github.com/liuyingxuvka/Khaos-Brain/releases/latest) 下载 `KhaosBrain.exe`
+- 把它放在这个仓库目录里，或通过命令行参数 `--repo-root` 指向这个仓库
+- 双击后即可浏览卡片；它只打包查看器代码和公开图标资源
+- 它不会把 `kb/private/`、`kb/history/`、`kb/candidates/` 或真实经验卡片封进二进制
+- 源码入口仍然是 `python scripts/kb_desktop.py --repo-root . --language en`
+
 ### 手动安装与检查（可选）
 
 如果你是协作者，或者你就是想手动跑一遍：
@@ -152,7 +162,7 @@ python scripts/install_codex_kb.py --check --json
 
 - 安装全局 preflight / launcher，让 Codex 知道在仓库任务前先检索这套 KB
 - 在 `$CODEX_HOME/AGENTS.md` 下写入或刷新 repo-managed 的全局默认约束 block，让 KB preflight / postflight 变成另一台机器也能继承的强默认规则层
-- 在 `$CODEX_HOME/automations/` 下刷新 repo-managed 的 `KB Sleep`、`KB Dream` 和 `KB Architect`
+- 在 `$CODEX_HOME/automations/` 下刷新 repo-managed 的 `KB Sleep`、`KB Dream` 和 `KB Architect`，并按 `strongest-available` / `deepest` 策略解析当前机器的自动化运行模型
 
 安装完成后，`python scripts/install_codex_kb.py --check --json` 会直接返回一个结构化 checklist。跨机器时，至少应看到这些项目全部通过：
 
@@ -162,9 +172,9 @@ python scripts/install_codex_kb.py --check --json
 - `$CODEX_HOME/AGENTS.md` 中存在 repo-managed 的 KB 默认约束 block
 - 这个 global AGENTS block 明确提到 `$predictive-kb-preflight`
 - 这个 global AGENTS block 明确要求 non-trivial 任务做 explicit KB postflight check
-- `KB Sleep` automation 存在且配置正确
-- `KB Dream` automation 存在且配置正确
-- `KB Architect` automation 存在且配置正确
+- `KB Sleep` automation 存在且配置正确，包括模型策略与解析后的运行配置
+- `KB Dream` automation 存在且配置正确，包括模型策略与解析后的运行配置
+- `KB Architect` automation 存在且配置正确，包括模型策略与解析后的运行配置
 - `strong_session_defaults` 为通过
 
 如果其中任一项失败，就不该把这台机器视为“已经完整装好”。
@@ -178,6 +188,8 @@ python scripts/kb_desktop.py --repo-root . --language en
 ```
 
 这个入口不启动浏览器，不需要本地 web 服务，也不依赖 Electron 或 Node。它使用 Python 标准库的桌面窗口读取同一套文件型 KB：左侧按路线索引导航，右侧以卡片封面的方式查看预测模型。`--language zh-CN` 可以显式切到中文显示层，`--language en` 则适合做英文预览和发布截图。
+
+如果需要 Windows exe、桌面快捷方式或 Codex 打开 UI 的 skill，见 `docs/windows_desktop_app.md`。
 
 无界面检查可以运行：
 
@@ -215,6 +227,7 @@ python scripts/kb_desktop.py --repo-root . --check
 ```text
 .
 ├─ AGENTS.md
+├─ CHANGELOG.md
 ├─ PROJECT_SPEC.md
 ├─ README.md
 ├─ VERSION
@@ -310,7 +323,7 @@ The repository now separates maintenance into three different kinds of “brain 
 - `KB Architect`
   reviews the operating mechanisms around Sleep, Dream, installation, automation, rollback, validation, and the proposal queue; it uses only `Evidence / Impact / Safety`, does not maintain card content, and runs by default every day at `14:00`
 
-These lanes do not run concurrently, and all three are provisioned into Codex automations by the installer.
+These lanes do not run concurrently, and all three are provisioned into Codex automations by the installer. The automation specs do not pin a model version; they record `model_policy = "strongest-available"` and `reasoning_effort_policy = "deepest"`, and the installer resolves them on each machine to the strongest available general GPT model and the deepest reasoning level that model supports.
 
 So when the repository moves to another machine, asking Codex to install it again restores the same “work while awake, consolidate while asleep, expand while dreaming, review the mechanisms afterward” maintenance rhythm there too.
 
@@ -343,6 +356,16 @@ The default path should be:
 
 For most people, this is more natural than reading the entire README first and manually typing every command, and it is also closer to the way the project is meant to be used.
 
+### If You Just Want The Desktop App
+
+Starting with `v0.2.0`, GitHub Releases include the Windows preview entry `KhaosBrain.exe`:
+
+- download `KhaosBrain.exe` from [GitHub Releases](https://github.com/liuyingxuvka/Khaos-Brain/releases/latest)
+- place it in this repository directory, or pass `--repo-root` on the command line to point it at this repository
+- double-click it to browse cards; it bundles only viewer code and public icon assets
+- it does not bundle `kb/private/`, `kb/history/`, `kb/candidates/`, or real memory cards into the binary
+- the source entry remains `python scripts/kb_desktop.py --repo-root . --language en`
+
 ### Manual Install And Check (Optional)
 
 If you are a collaborator, or you simply want to run it yourself:
@@ -356,7 +379,7 @@ The installer does three main things:
 
 - installs the global preflight / launcher so Codex knows to consult this KB before repository work
 - writes or refreshes a repo-managed defaults block under `$CODEX_HOME/AGENTS.md` so KB preflight / postflight become strong inherited defaults on another machine too
-- refreshes the repo-managed `KB Sleep`, `KB Dream`, and `KB Architect` automations under `$CODEX_HOME/automations/`
+- refreshes the repo-managed `KB Sleep`, `KB Dream`, and `KB Architect` automations under `$CODEX_HOME/automations/`, resolving the current machine's automation runtime from the `strongest-available` / `deepest` policy
 
 After installation, `python scripts/install_codex_kb.py --check --json` returns a structured checklist directly. On another machine, you should treat the install as complete only when these checks all pass:
 
@@ -366,9 +389,9 @@ After installation, `python scripts/install_codex_kb.py --check --json` returns 
 - `$CODEX_HOME/AGENTS.md` contains the repo-managed predictive KB defaults block
 - that global AGENTS block mentions `$predictive-kb-preflight`
 - that global AGENTS block requires an explicit KB postflight check for non-trivial work
-- `KB Sleep` exists and matches the repository automation spec
-- `KB Dream` exists and matches the repository automation spec
-- `KB Architect` exists and matches the repository automation spec
+- `KB Sleep` exists and matches the repository automation spec, including model policy and resolved runtime
+- `KB Dream` exists and matches the repository automation spec, including model policy and resolved runtime
+- `KB Architect` exists and matches the repository automation spec, including model policy and resolved runtime
 - `strong_session_defaults` is true
 
 If any required checklist item fails, the machine should be treated as only partially installed.
@@ -384,6 +407,8 @@ python scripts/kb_desktop.py --repo-root . --language en
 This entry point does not start a browser, a local web server, Electron, or Node. It uses Python's standard desktop toolkit and reads the same file-based KB: route navigation stays on the left, and predictive model cards are shown as cover-like cards on the right. `--language zh-CN` switches explicitly to the Chinese display layer, while `--language en` is useful for English previews and release screenshots.
 
 The desktop viewer supports a local display-language setting. English card fields remain the canonical source; optional `i18n.zh-CN` fields are filled by sleep maintenance and used for Chinese display with English fallback.
+
+For the Windows exe, desktop shortcut, or Codex UI-opening skill, see `docs/windows_desktop_app.md`.
 
 For a headless check:
 
@@ -421,6 +446,7 @@ A good starting order is:
 ```text
 .
 ├─ AGENTS.md
+├─ CHANGELOG.md
 ├─ PROJECT_SPEC.md
 ├─ README.md
 ├─ VERSION

@@ -19,19 +19,42 @@ from local_kb.ui_data import build_overview_payload, build_route_view_payload  #
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Open the local Khaos Brain desktop card viewer.")
-    parser.add_argument("--repo-root", default=".")
+    parser.add_argument("--repo-root", default="auto")
     parser.add_argument("--route", default="", help="Initial route for check output.")
-    parser.add_argument("--language", default="en", choices=["en", "zh-CN"], help="Display language for check output.")
+    parser.add_argument(
+        "--language",
+        default="",
+        choices=["", "en", "zh-CN"],
+        help="Display language. Omit it to use the saved desktop setting.",
+    )
     parser.add_argument("--check", action="store_true", help="Validate UI data without opening a desktop window.")
     return parser
 
 
+def _show_startup_error(message: str) -> None:
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("Khaos Brain", message)
+        root.destroy()
+    except Exception:
+        print(message, file=sys.stderr)
+
+
 def main() -> None:
     args = build_parser().parse_args()
-    repo_root = resolve_repo_root(args.repo_root)
+    try:
+        repo_root = resolve_repo_root(args.repo_root)
+    except FileNotFoundError as exc:
+        _show_startup_error(str(exc))
+        raise SystemExit(2) from exc
 
     if args.check:
-        route_payload = build_route_view_payload(repo_root, route=args.route, language=args.language)
+        check_language = args.language or "en"
+        route_payload = build_route_view_payload(repo_root, route=args.route, language=check_language)
         overview = build_overview_payload(repo_root)
         print(
             json.dumps(
@@ -42,7 +65,7 @@ def main() -> None:
                     "deck_count": len(route_payload["deck"]),
                     "primary_count": len(route_payload["cards"]["primary"]),
                     "cross_count": len(route_payload["cards"]["cross"]),
-                    "language": args.language,
+                    "language": check_language,
                     "first_card_title": route_payload["deck"][0]["title"] if route_payload["deck"] else "",
                 },
                 ensure_ascii=False,
@@ -53,7 +76,7 @@ def main() -> None:
 
     from local_kb.desktop_app import run_desktop_app
 
-    run_desktop_app(repo_root, language=args.language)
+    run_desktop_app(repo_root, language=args.language or None)
 
 
 if __name__ == "__main__":

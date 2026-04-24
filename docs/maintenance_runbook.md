@@ -4,7 +4,7 @@ This runbook is for the independent `kb-sleeper` maintenance pass. It is operati
 
 `PROJECT_SPEC.md` remains the canonical source for repository rules and thresholds. This runbook describes how to operate the current tooling safely. If the runbook and the spec disagree, follow the spec and then simplify the runbook.
 
-The repository installer is expected to provision a repo-managed `KB Sleep` cron automation under `$CODEX_HOME/automations/`. Re-running `python scripts/install_codex_kb.py --json` on another machine should refresh that schedule automatically.
+The repository installer is expected to provision a repo-managed `KB Sleep` cron automation under `$CODEX_HOME/automations/`. Re-running `python scripts/install_codex_kb.py --json` on another machine should refresh that schedule automatically. The automation spec should keep model selection policy-based: strongest available model plus deepest supported reasoning, resolved during install rather than pinned to a specific model version.
 
 ## Rule Discipline
 
@@ -18,7 +18,7 @@ The repository installer is expected to provision a repo-managed `KB Sleep` cron
 - Keep sleep separate from Architect mechanism maintenance. Sleep owns card and memory-surface maintenance; Architect owns prompts, runbooks, automation, install checks, validation, rollback, and proposal-queue governance.
 - Treat `confidence` and `status` as reranking terms, not as stand-alone evidence that can create a hit without route or lexical support.
 - Every auto-apply rule should answer four questions clearly: what inputs it reads, what condition it checks, what file change it makes, and how it is validated or rolled back.
-- Semantic auto-apply should preserve AI agency but limit blast radius: AI decides the card outcome, while tooling requires cited evidence, risk, expected retrieval effect, rollback notes, and a maximum of 3 trusted-card modifications per run.
+- Semantic auto-apply should preserve AI agency but limit blast radius: AI decides the card outcome, while tooling requires cited evidence, risk, utility assessment, expected retrieval effect, rollback notes, and a maximum of 3 trusted-card modifications per run.
 - End every non-empty sleep pass with an explicit postflight check. If the pass exposed a reusable process lesson, card weakness, route gap, split signal, translation gap, or apply hazard, append one structured observation before finalizing.
 - After that final sleep postflight observation is written, stop the pass. Do not immediately run consolidation again on the observation that was just appended.
 
@@ -63,11 +63,12 @@ The repository installer is expected to provision a repo-managed `KB Sleep` cron
    - `--apply-mode i18n-zh-CN --i18n-plan <path>` for AI-authored Chinese display translations
    - `--apply-mode semantic-review --semantic-review-plan <path>` for AI-authored keep/rewrite/confidence/promotion/demotion/deprecation decisions
    - `review-route-i18n` actions are not auto-applied; patch the route display-label map manually and keep canonical routes unchanged
+   - `new-candidates` requires concrete future utility: complete predictive evidence plus an actionable `operational_use`; low-confidence seeds are allowed, low-utility observations stay history-only
    - after any candidate/card creation pass, inspect `apply_summary.i18n_followup`; if it says translations are required, treat i18n as the final cleanup stage for that sleep pass
    - after any candidate/card creation or review pass, inspect route quality; prefer functional, reusable `domain_path` routes and keep project/repository/product names as provenance or tags unless the card is truly project-specific
 8. Inspect per-action proposal stubs with `kb_proposals.py`.
    - When a grouped route action includes explicit contrastive evidence, prefer candidate scaffolds whose main `predict.expected_result` reflects the stronger revised path and whose `predict.alternatives` preserves the weaker earlier branch.
-9. When a semantic card change is justified, author a local semantic review plan. The plan must cite current action `evidence_event_ids`, set `apply: true`, include `rationale`, `risk`, `expected_retrieval_effect`, and `rollback_note`, and respect the trusted-card budget of 3.
+9. When a semantic card change is justified, author a local semantic review plan. The plan must cite current action `evidence_event_ids`, set `apply: true`, include `rationale`, `risk`, `utility_assessment`, `expected_retrieval_effect`, and `rollback_note`, and respect the trusted-card budget of 3. Use `utility_assessment.judgment: useful` for `keep`, `rewrite`, `adjust-confidence`, or `promote`; use a non-useful judgment such as `low-utility`, `obsolete`, `misleading`, `unclear`, or `insufficient-evidence` for `demote` or `deprecate`.
 10. If a weak observation should be ignored, a candidate should be rejected, a confidence review should be logged, or a split review should be closed without rewriting the trusted card yet, append that decision with `kb_maintenance.py`.
 11. For cards that recur in maintenance output, run a split review:
    - keep a hub card intact when it still expresses one bounded predictive relation
@@ -188,6 +189,9 @@ decisions:
     apply: true
     decision: rewrite
     risk: medium
+    utility_assessment:
+      judgment: useful
+      reason: The card remains useful for future retrieval but needs a narrower operational surface.
     evidence_event_ids:
       - obs-123
     rationale: The cited evidence shows the card remains useful but needs a narrower predictive claim.
@@ -352,13 +356,14 @@ python .agents/skills/local-kb-retrieve/scripts/kb_taxonomy.py `
   - the target is a route
   - the route is semantically specific enough to be useful as a scaffold; in the current implementation this means at least 3 route segments, so broad routes remain proposal-only
   - the observations include task summaries
-  - there are at least 2 grouped supporting observations, or exactly 1 supporting observation that already has complete predictive evidence (`scenario`, `action_taken`, and `observed_result`)
+  - at least one supporting observation has future utility: complete predictive evidence plus concrete `operational_use` that can guide later action selection
+  - there are at least 2 grouped supporting observations, or exactly 1 supporting observation that already has complete predictive evidence (`scenario`, `action_taken`, and `observed_result`) and future utility
   - single-observation candidates are created as low-confidence retrieval seeds, not as trusted rules or promotion-ready cards
   - if the supporting observations recorded weaker-path versus revised-path evidence, preserve that branch structure in the scaffold instead of flattening it into one success summary
 - Auto-apply `review-related-cards` actions only when repeated co-use of actually used `entry_ids` already supports a stable direct related-card set
 - Auto-apply `review-cross-index` actions only when repeated route evidence already supports a stable direct `cross_index` update
 - Auto-apply `review-i18n` actions only when an AI-authored `zh-CN` translation plan is supplied; English top-level fields remain canonical
-- Auto-apply semantic card changes only when an AI-authored semantic review plan is supplied; thresholds may trigger review pressure, but AI must decide the specific `keep`, `rewrite`, `adjust-confidence`, `promote`, `demote`, or `deprecate` action and cite the supporting action event ids
+- Auto-apply semantic card changes only when an AI-authored semantic review plan is supplied; thresholds may trigger review pressure, but AI must decide the specific `keep`, `rewrite`, `adjust-confidence`, `promote`, `demote`, or `deprecate` action, cite the supporting action event ids, and include `utility_assessment`
 - Cap semantic-review trusted-card modifications at 3 per run, including trusted rewrites, trusted confidence changes, deprecations, demotions, and candidate promotions into trusted scope
 - Restore `kb/history/events.jsonl` from a consolidation snapshot
 
@@ -368,7 +373,7 @@ python .agents/skills/local-kb-retrieve/scripts/kb_taxonomy.py `
 - Promoting candidates into `kb/public/` or `kb/private/` without an AI-authored semantic review plan
 - Taxonomy changes, including route add/rename/move/split/merge
 - Code-change suggestions from history
-- Single-observation candidate creation when the observation lacks complete predictive evidence
+- Candidate creation when the observation lacks complete predictive evidence or concrete future utility
 - Any rollback beyond `history-events` and semantic-review entry-file restore from `apply.json`
 - Split/merge restructuring unless represented as concrete supported semantic-review rewrites
 - Any semantic repair that does not cite evidence, risk, expected retrieval effect, and rollback notes
@@ -390,7 +395,7 @@ Goals:
 5. Use kb_consolidate.py in proposal mode first.
 6. Only use --apply-mode new-candidates if the grouped actions are clearly low-risk and eligible.
 7. For semantic card changes, let AI judge the card content and author a semantic-review plan; do not let raw thresholds directly decide rewrite, promotion, demotion, or deprecation.
-8. Apply semantic-review only with evidence ids, risk, expected retrieval effect, rollback note, and the trusted-card modification cap of 3.
+8. Apply semantic-review only with evidence ids, risk, utility assessment, expected retrieval effect, rollback note, and the trusted-card modification cap of 3.
 9. After any candidate/card creation or semantic-review text change, inspect missing zh-CN display translations, author an i18n plan for missing fields, and run --apply-mode i18n-zh-CN as the final cleanup stage.
 10. Review candidate routes: prefer functional, reusable domain paths; keep project names as provenance or tags unless the card is truly project-specific.
 11. Keep deterministic rules simple, but do not replace AI semantic judgment with raw thresholds.

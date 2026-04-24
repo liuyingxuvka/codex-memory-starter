@@ -94,6 +94,10 @@ class SemanticReviewApplyTests(unittest.TestCase):
                             "apply": True,
                             "decision": "rewrite",
                             "risk": "medium",
+                            "utility_assessment": {
+                                "judgment": "useful",
+                                "reason": "The card remains useful but needs a narrower operational surface.",
+                            },
                             "evidence_event_ids": [f"obs-{entry_id[-1]}"],
                             "rationale": "The cited evidence supports a narrower card surface.",
                             "expected_retrieval_effect": "Future retrieval should present sharper guidance.",
@@ -182,6 +186,10 @@ class SemanticReviewApplyTests(unittest.TestCase):
                             "apply": True,
                             "decision": "promote",
                             "risk": "high",
+                            "utility_assessment": {
+                                "judgment": "useful",
+                                "reason": "Reviewed evidence shows the candidate should guide future maintenance tasks.",
+                            },
                             "target_scope": "private",
                             "evidence_event_ids": ["candidate-created-1"],
                             "rationale": "The candidate has enough reviewed evidence to enter trusted private scope.",
@@ -241,6 +249,111 @@ class SemanticReviewApplyTests(unittest.TestCase):
             self.assertTrue(restored_candidate_path.exists())
             restored_candidate = yaml.safe_load(restored_candidate_path.read_text(encoding="utf-8"))
             self.assertEqual(restored_candidate["status"], "candidate")
+
+    def test_semantic_review_rejects_surface_change_without_useful_assessment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            write_yaml_file(
+                repo_root / "kb" / "private" / "system" / "knowledge-library" / "maintenance" / "model-low-utility.yaml",
+                sample_entry("model-low-utility"),
+            )
+            write_history(
+                repo_root / "kb" / "history" / "events.jsonl",
+                [update_card_observation("model-low-utility", "obs-low-utility")],
+            )
+            plan_path = repo_root / "kb" / "history" / "consolidation" / "semantic-low-utility" / "semantic_review_plan.yaml"
+            write_yaml_file(
+                plan_path,
+                {
+                    "kind": "local-kb-semantic-review-plan",
+                    "trusted_card_limit": 3,
+                    "decisions": [
+                        {
+                            "action_key": "review-entry-update::entry::model-low-utility",
+                            "entry_id": "model-low-utility",
+                            "apply": True,
+                            "decision": "rewrite",
+                            "risk": "medium",
+                            "utility_assessment": {
+                                "judgment": "low-utility",
+                                "reason": "The review says this would not help future retrieval.",
+                            },
+                            "evidence_event_ids": ["obs-low-utility"],
+                            "rationale": "The cited evidence is not enough to preserve the surface.",
+                            "expected_retrieval_effect": "Future retrieval would be less noisy.",
+                            "rollback_note": "Restore the previous entry payload from apply.json if needed.",
+                            "updated_fields": {"use": {"guidance": "This should not be applied."}},
+                        }
+                    ],
+                },
+            )
+
+            result = consolidate_history(
+                repo_root=repo_root,
+                run_id="semantic-low-utility",
+                apply_mode="semantic-review",
+                semantic_review_plan_path=plan_path,
+            )
+
+            self.assertEqual(result["apply_summary"]["updated_entry_count"], 0)
+            self.assertIn(
+                "Surface-retaining semantic review decisions require utility_assessment.judgment: useful",
+                result["apply_summary"]["skipped_actions"][0]["reason"],
+            )
+
+    def test_semantic_review_deprecates_low_utility_card(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            entry_path = repo_root / "kb" / "private" / "system" / "knowledge-library" / "maintenance" / "model-deprecate.yaml"
+            write_yaml_file(entry_path, sample_entry("model-deprecate"))
+            write_history(
+                repo_root / "kb" / "history" / "events.jsonl",
+                [update_card_observation("model-deprecate", "obs-deprecate")],
+            )
+            plan_path = repo_root / "kb" / "history" / "consolidation" / "semantic-deprecate" / "semantic_review_plan.yaml"
+            write_yaml_file(
+                plan_path,
+                {
+                    "kind": "local-kb-semantic-review-plan",
+                    "trusted_card_limit": 3,
+                    "decisions": [
+                        {
+                            "action_key": "review-entry-update::entry::model-deprecate",
+                            "entry_id": "model-deprecate",
+                            "apply": True,
+                            "decision": "deprecate",
+                            "risk": "high",
+                            "utility_assessment": {
+                                "judgment": "low-utility",
+                                "reason": "The card is noisy and no longer helps future action selection.",
+                            },
+                            "evidence_event_ids": ["obs-deprecate"],
+                            "rationale": "The card should leave the active retrieval surface.",
+                            "expected_retrieval_effect": "Future retrieval should avoid this low-utility rule.",
+                            "rollback_note": "Restore the previous trusted entry payload from apply.json if needed.",
+                            "updated_fields": {"confidence": 0.2},
+                        }
+                    ],
+                },
+            )
+
+            result = consolidate_history(
+                repo_root=repo_root,
+                run_id="semantic-deprecate",
+                apply_mode="semantic-review",
+                semantic_review_plan_path=plan_path,
+            )
+
+            payload = yaml.safe_load(entry_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], "deprecated")
+            self.assertEqual(payload["confidence"], 0.2)
+            self.assertEqual(result["apply_summary"]["updated_entry_count"], 1)
+            history_events = [
+                json.loads(line)
+                for line in (repo_root / "kb" / "history" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(history_events[-1]["context"]["utility_assessment"]["judgment"], "low-utility")
 
 
 if __name__ == "__main__":

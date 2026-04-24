@@ -81,7 +81,15 @@ class ConsolidateApplyModeTests(unittest.TestCase):
                         "task_summary": "Need reusable email preference guidance",
                     },
                     "rationale": "next=new-candidate",
-                    "context": {"suggested_action": "new-candidate"},
+                    "context": {
+                        "suggested_action": "new-candidate",
+                        "predictive_observation": {
+                            "scenario": "Email workflow tasks repeatedly need route-specific preference guidance.",
+                            "action_taken": "Record a new-candidate observation for the communication email route.",
+                            "observed_result": "Maintenance can synthesize a candidate instead of losing the repeated route gap.",
+                            "operational_use": "Prefer a route-specific email preference card when similar email tasks recur.",
+                        },
+                    },
                 },
                 {
                     "event_id": "obs-new-cand-2",
@@ -94,7 +102,15 @@ class ConsolidateApplyModeTests(unittest.TestCase):
                         "task_summary": "Need default reply-language card for email work",
                     },
                     "rationale": "next=new-candidate",
-                    "context": {"suggested_action": "new-candidate"},
+                    "context": {
+                        "suggested_action": "new-candidate",
+                        "predictive_observation": {
+                            "scenario": "Email reply-language tasks keep exposing missing reusable guidance.",
+                            "action_taken": "Group the observation under the communication email route.",
+                            "observed_result": "The route has enough reusable evidence for a candidate scaffold.",
+                            "operational_use": "Use the email route card to choose default reply-language behavior later.",
+                        },
+                    },
                 },
                 {
                     "event_id": "obs-update-1",
@@ -121,10 +137,10 @@ class ConsolidateApplyModeTests(unittest.TestCase):
                 apply_mode="new-candidates",
             )
 
-            self.assertEqual(result["candidate_action_count"], 6)
+            self.assertEqual(result["candidate_action_count"], 5)
             self.assertEqual(result["apply_mode"], "new-candidates")
             self.assertEqual(result["apply_summary"]["created_candidate_count"], 1)
-            self.assertEqual(result["apply_summary"]["skipped_action_count"], 5)
+            self.assertEqual(result["apply_summary"]["skipped_action_count"], 4)
             self.assertTrue(result["apply_summary"]["i18n_followup"]["required"])
             self.assertEqual(result["apply_summary"]["i18n_followup"]["missing_entry_count"], 1)
             self.assertIn("snapshot_path", result["artifact_paths"])
@@ -152,7 +168,6 @@ class ConsolidateApplyModeTests(unittest.TestCase):
                     "review-confidence",
                     "review-cross-index",
                     "review-entry-update",
-                    "review-observation-evidence",
                     "review-observation-evidence",
                 ],
             )
@@ -272,6 +287,48 @@ class ConsolidateApplyModeTests(unittest.TestCase):
             self.assertIn("complete predictive evidence", candidate_action["apply_eligibility"]["reason"])
             self.assertIn("review-observation-evidence", [item["action_type"] for item in result["apply_summary"]["skipped_actions"]])
 
+    def test_apply_mode_skips_low_utility_single_observation_route_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            history_path = repo_root / "kb" / "history" / "events.jsonl"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+
+            event = {
+                "event_id": "obs-low-utility-1",
+                "event_type": "observation",
+                "created_at": "2026-04-19T08:09:00+00:00",
+                "source": {"kind": "task", "agent": "worker-1"},
+                "target": {
+                    "kind": "task-observation",
+                    "route_hint": ["work", "reporting", "ppt"],
+                    "task_summary": "Complete but useless observation should not become a card",
+                },
+                "rationale": "next=new-candidate",
+                "context": {
+                    "suggested_action": "new-candidate",
+                    "predictive_observation": {
+                        "scenario": "A one-time reporting task happened.",
+                        "action_taken": "Record the observation without reusable action guidance.",
+                        "observed_result": "There is no future retrieval value.",
+                    },
+                },
+            }
+            history_path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+            result = consolidate_history(
+                repo_root=repo_root,
+                run_id="apply-single-low-utility",
+                apply_mode="new-candidates",
+            )
+
+            self.assertEqual(result["apply_summary"]["created_candidate_count"], 0)
+            candidate_action = next(action for action in result["actions"] if action["action_type"] == "consider-new-candidate")
+            self.assertFalse(candidate_action["apply_eligibility"]["eligible"])
+            self.assertIn("future utility", candidate_action["apply_eligibility"]["reason"])
+            evidence_action = next(action for action in result["actions"] if action["action_type"] == "review-observation-evidence")
+            self.assertEqual(evidence_action["reasons"], ["predictive-utility:missing-operational-use"])
+            self.assertFalse((repo_root / "kb" / "candidates").exists())
+
     def test_apply_mode_skips_broad_routes_even_when_grouped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -290,7 +347,15 @@ class ConsolidateApplyModeTests(unittest.TestCase):
                         "task_summary": "Need a general engineering refactor card",
                     },
                     "rationale": "next=new-candidate",
-                    "context": {"suggested_action": "new-candidate"},
+                    "context": {
+                        "suggested_action": "new-candidate",
+                        "predictive_observation": {
+                            "scenario": "A broad engineering task suggests reusable guidance but lacks a specific route.",
+                            "action_taken": "Keep the broad route in proposal-only review.",
+                            "observed_result": "Maintenance should not create a broad scaffold even with utility.",
+                            "operational_use": "Review broad engineering observations for a narrower route before card creation.",
+                        },
+                    },
                 },
                 {
                     "event_id": "obs-broad-2",
@@ -303,7 +368,15 @@ class ConsolidateApplyModeTests(unittest.TestCase):
                         "task_summary": "Need another engineering workflow card",
                     },
                     "rationale": "next=new-candidate",
-                    "context": {"suggested_action": "new-candidate"},
+                    "context": {
+                        "suggested_action": "new-candidate",
+                        "predictive_observation": {
+                            "scenario": "A second broad engineering task still lacks a precise maintenance route.",
+                            "action_taken": "Keep the route-depth gate active for the broad group.",
+                            "observed_result": "The broad route remains ineligible for automatic candidate creation.",
+                            "operational_use": "Prefer narrowing broad engineering lessons before creating cards.",
+                        },
+                    },
                 },
                 {
                     "event_id": "obs-specific-1",
@@ -316,7 +389,15 @@ class ConsolidateApplyModeTests(unittest.TestCase):
                         "task_summary": "Need a desktop UI-state recovery card",
                     },
                     "rationale": "next=new-candidate",
-                    "context": {"suggested_action": "new-candidate"},
+                    "context": {
+                        "suggested_action": "new-candidate",
+                        "predictive_observation": {
+                            "scenario": "Desktop UI-state tasks need reusable recovery guidance.",
+                            "action_taken": "Group this observation under the desktop app UI-state route.",
+                            "observed_result": "The specific route can produce a candidate while broad routes stay manual.",
+                            "operational_use": "Prefer the desktop UI-state card for future recovery tasks.",
+                        },
+                    },
                 },
                 {
                     "event_id": "obs-specific-2",
@@ -329,7 +410,15 @@ class ConsolidateApplyModeTests(unittest.TestCase):
                         "task_summary": "Need a second desktop UI-state recovery card",
                     },
                     "rationale": "next=new-candidate",
-                    "context": {"suggested_action": "new-candidate"},
+                    "context": {
+                        "suggested_action": "new-candidate",
+                        "predictive_observation": {
+                            "scenario": "A second desktop UI-state task repeats the same route gap.",
+                            "action_taken": "Group the second observation under the same desktop app route.",
+                            "observed_result": "The repeated specific route remains eligible for candidate creation.",
+                            "operational_use": "Use the desktop UI-state candidate when future app recovery tasks recur.",
+                        },
+                    },
                 },
             ]
             with history_path.open("w", encoding="utf-8") as handle:
@@ -415,12 +504,13 @@ class ConsolidateApplyModeTests(unittest.TestCase):
                             "rationale": "next=new-candidate",
                             "context": {
                                 "suggested_action": "new-candidate",
-                                "predictive_observation": {
-                                    "scenario": f"Repeated tasks keep routing through {' / '.join(route_hint)}.",
-                                    "action_taken": "Record another new-candidate observation for the same route.",
-                                    "observed_result": "The route still lacks a reusable predictive card.",
-                                },
+                            "predictive_observation": {
+                                "scenario": f"Repeated tasks keep routing through {' / '.join(route_hint)}.",
+                                "action_taken": "Record another new-candidate observation for the same route.",
+                                "observed_result": "The route still lacks a reusable predictive card.",
+                                "operational_use": f"Prefer route-specific guidance for future {' / '.join(route_hint)} tasks.",
                             },
+                        },
                         }
                     )
 

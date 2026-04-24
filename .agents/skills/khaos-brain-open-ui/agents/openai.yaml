@@ -1,0 +1,4 @@
+interface:
+  display_name: "Khaos Brain UI"
+  short_description: "Open the local Khaos Brain desktop card browser."
+  default_prompt: "Open the Khaos Brain desktop card browser for this repository."

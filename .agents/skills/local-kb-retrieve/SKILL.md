@@ -76,6 +76,7 @@ Sleep maintenance checklist:
 5. If the grouped history looks clean, allow only the lowest-risk automatic apply path:
    `python .agents/skills/local-kb-retrieve/scripts/kb_consolidate.py --json --apply-mode new-candidates`
    Treat broad routes as proposal-only even when they repeat; in the current implementation, current low-risk auto-apply should stay on routes with at least 3 segments.
+   Only create candidate cards from observations with concrete future utility: complete predictive evidence plus actionable `operational_use`. Low-confidence seeds are allowed; low-utility observations should stay history-only or be ignored through an explicit maintenance decision.
    For direct entry-link maintenance, `python .agents/skills/local-kb-retrieve/scripts/kb_consolidate.py --json --apply-mode related-cards` may update stable `related_cards`.
    For stable alternate-route maintenance, `python .agents/skills/local-kb-retrieve/scripts/kb_consolidate.py --json --apply-mode cross-index` may update low-risk `cross_index` routes when repeated route evidence is already strong enough.
 6. Restrict automatic apply to deterministic rules or simple thresholded semantic cases. Keep higher-ambiguity semantic changes proposal-only until the support and contradiction thresholds are met.

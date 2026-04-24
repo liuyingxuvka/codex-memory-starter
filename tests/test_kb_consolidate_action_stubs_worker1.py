@@ -184,7 +184,8 @@ class ConsolidateActionStubTests(unittest.TestCase):
             candidate_stub = next(item for item in stub_payloads if item["action_type"] == "consider-new-candidate")
             evidence_stub = next(item for item in stub_payloads if item["action_type"] == "review-observation-evidence")
             self.assertEqual(candidate_stub["target"]["ref"], "work/reporting/ppt")
-            self.assertTrue(candidate_stub["apply_eligibility"]["eligible"])
+            self.assertFalse(candidate_stub["apply_eligibility"]["eligible"])
+            self.assertIn("future utility", candidate_stub["apply_eligibility"]["reason"])
             self.assertEqual(candidate_stub["suggested_artifact_kind"], "candidate-entry-proposal")
             self.assertEqual(evidence_stub["disposition_suggestion"]["recommendation"], "rewrite-or-split-observations")
 

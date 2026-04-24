@@ -139,7 +139,7 @@ The desktop viewer uses the generated Khaos Brain card-stack icon from `assets/`
 - `khaos-brain-icon.png`: cropped application icon
 - `khaos-brain-icon-64.png`: sidebar brand mark
 
-The intended reusable mark is the inner stack of three memory cards with the subtle brain watermark. The outer generated glass frame is treated as source context, not as the UI brand mark.
+The intended reusable mark is the inner stack of three memory cards with a high-contrast white ring on the front card. Earlier brain-line variants were harder to read at small Windows icon sizes, so the ring is the current production mark. The outer generated glass frame is treated as source context, not as the UI brand mark.
 
 Settings currently owns display language only. English card fields remain the canonical source, while `i18n.zh-CN` is an optional display layer filled by sleep maintenance. The UI should render Chinese when selected and fall back to English for any untranslated field.
 

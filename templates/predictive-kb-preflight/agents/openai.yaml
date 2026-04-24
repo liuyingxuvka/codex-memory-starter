@@ -4,4 +4,4 @@ policy:
 interface:
   display_name: "Predictive KB Preflight"
   short_description: "Consult the shared predictive KB before coding, planning, writing, or repository work"
-  default_prompt: "Use $predictive-kb-preflight implicitly as a required default preflight for coding, planning, writing, and repository work. Run the KB scan before substantive work, and for non-trivial tasks do not treat work as complete until one explicit KB postflight check has been performed. After meaningful work, record a KB follow-up observation whenever the task exposed a reusable signal, miss, route gap, card weakness, or KB-process failure."
+  default_prompt: "Use $predictive-kb-preflight implicitly as a required default preflight for coding, planning, writing, and repository work. Run the KB scan before substantive work, and for non-trivial tasks do not treat work as complete until one explicit KB postflight check has been performed. After meaningful work, record a KB follow-up observation whenever the task exposed a reusable signal, skill/plugin usage lesson, miss, route gap, card weakness, or KB-process failure."
