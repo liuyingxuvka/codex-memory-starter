@@ -41,4 +41,20 @@ source:
   - origin: repository design brief
     date: 2026-04-19
 status: trusted
-updated_at: 2026-04-20
+updated_at: 2026-04-24
+i18n:
+  zh-CN:
+    title: 仓库任务前先扫描本地 KB 更容易浮现既有模型
+    if:
+      notes: 适合作为仓库任务的默认起点，包括 GitHub 发布、发布审查、README 展示、公用模板清理，以及仓库边界和隐私审查。扫描刻意保持轻量；即使没有既有模型适用，也能快速确认当前没有已存储的本地上下文约束。
+    action:
+      description: 在开始实质工作前，根据任务方向选择最合适的路线提示，对本地 KB 做一次快速的路线优先扫描。
+    predict:
+      expected_result: 已存储的模型、约束和既有经验更可能在工作开始前浮现，通常会减少重复推导、遗漏预期和可避免返工。
+      alternatives:
+      - when: 工作开始前连一次快速 KB 扫描都不做
+        result: 相关既有模型更可能一直不可见，直到后期才被发现，通常会增加修正和协调成本。
+      - when: 快速扫描没有返回相关条目
+        result: 这次扫描仍然提供了有用信号，说明任务可以在没有已知存储约束的情况下继续。
+    use:
+      guidance: 仓库任务开始时先进行一次轻量的 local-kb-retrieve 扫描；把“没有相关条目”也视为有用信息，而不是提前跳过检索的理由。发布和同步任务不覆盖这个默认动作。

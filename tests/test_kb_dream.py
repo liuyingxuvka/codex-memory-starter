@@ -22,6 +22,31 @@ def write_entry(path: Path, payload: dict) -> None:
     path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
+def write_dream_process_entry(repo_root: Path) -> None:
+    write_entry(
+        repo_root / "kb" / "public" / "predictive-kb" / "agent-lifecycle" / "exploration" / "dream.yaml",
+        {
+            "id": "model-dream-process",
+            "title": "Dream process stays bounded",
+            "type": "model",
+            "scope": "public",
+            "domain_path": ["predictive-kb", "agent-lifecycle", "exploration"],
+            "cross_index": ["kb/dream/verification"],
+            "related_cards": [],
+            "tags": ["dream", "exploration", "maintenance"],
+            "trigger_keywords": ["dream", "bounded", "preflight", "observation"],
+            "if": {"notes": "A Dream pass is about to select local KB experiments."},
+            "action": {"description": "Recall prior Dream-process guidance before selecting routes."},
+            "predict": {"expected_result": "The Dream run stays history-only or candidate-only.", "alternatives": []},
+            "use": {"guidance": "Record a run-level Dream observation after experiments finish."},
+            "confidence": 0.86,
+            "source": [{"origin": "test", "date": "2026-04-24"}],
+            "status": "trusted",
+            "updated_at": "2026-04-24",
+        },
+    )
+
+
 class DreamMaintenanceTests(unittest.TestCase):
     def test_dream_selector_prefers_dream_adjacent_over_sleep_eligible(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -71,7 +96,6 @@ class DreamMaintenanceTests(unittest.TestCase):
                             "predictive_observation": {
                                 "scenario": "When a non-trivial repository task finishes in this runtime.",
                                 "action_taken": "Make KB postflight explicit before finalization.",
-                                "observed_result": "The reusable lesson is more likely to be written back.",
                             },
                         },
                     },
@@ -116,11 +140,13 @@ class DreamMaintenanceTests(unittest.TestCase):
                 result["experiments"][0]["route_ref"],
                 "engineering/agent-behavior/postflight",
             )
+            self.assertTrue(result["experiments"][0]["is_executable"])
 
     def test_dream_run_creates_candidate_from_single_adjacent_observation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
             history_path = repo_root / "kb" / "history" / "events.jsonl"
+            write_dream_process_entry(repo_root)
 
             sibling_entry_path = repo_root / "kb" / "public" / "engineering" / "agent-behavior" / "retrieval.yaml"
             write_entry(
@@ -157,7 +183,6 @@ class DreamMaintenanceTests(unittest.TestCase):
                         "target": {
                             "kind": "task-observation",
                             "route_hint": ["engineering", "agent-behavior", "postflight"],
-                            "task_summary": "Need a reusable postflight lesson for this runtime",
                         },
                         "rationale": "next=new-candidate",
                         "context": {
@@ -196,19 +221,102 @@ class DreamMaintenanceTests(unittest.TestCase):
 
             report_path = repo_root / result["artifact_paths"]["report_path"]
             self.assertTrue(report_path.exists())
+            preflight_path = repo_root / result["artifact_paths"]["preflight_path"]
+            self.assertTrue(preflight_path.exists())
+            preflight_payload = json.loads(preflight_path.read_text(encoding="utf-8"))
+            self.assertEqual(preflight_payload["kind"], "local-kb-dream-preflight")
+            self.assertIn("model-dream-process", preflight_payload["matched_entry_ids"])
+            self.assertIn("model-dream-process", result["preflight"]["matched_entry_ids"])
+            self.assertTrue(result["run_observation_event_id"])
+
+            plan_path = repo_root / result["artifact_paths"]["plan_path"]
+            plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
+            self.assertGreaterEqual(plan_payload["preflight_matched_entry_count"], 1)
+            self.assertIn("model-dream-process", plan_payload["preflight_matched_entry_ids"])
+
             experiments_path = repo_root / result["artifact_paths"]["experiments_path"]
             experiments_payload = json.loads(experiments_path.read_text(encoding="utf-8"))
             self.assertEqual(experiments_payload["experiments"][0]["classification"], "candidate-created")
+            self.assertEqual(experiments_payload["experiments"][0]["safety_tier"], "workspace-only")
+            self.assertIn("validation_plan", experiments_payload["experiments"][0])
+
+            execution_plan_path = repo_root / result["artifact_paths"]["execution_plan_path"]
+            execution_plan_payload = json.loads(execution_plan_path.read_text(encoding="utf-8"))
+            self.assertEqual(execution_plan_payload["status"], "completed")
+            self.assertIn("exactly one executable experiment", execution_plan_payload["policy"]["selection_rule"])
+            self.assertEqual(execution_plan_payload["selected_experiment_count"], 1)
+            checkpoint_statuses = {item["id"]: item["status"] for item in execution_plan_payload["checkpoints"]}
+            self.assertEqual(checkpoint_statuses["single-experiment-selection"], "completed")
+            self.assertEqual(checkpoint_statuses["validation"], "completed")
+            self.assertEqual(checkpoint_statuses["experiment-observation"], "completed")
+            self.assertEqual(checkpoint_statuses["run-observation"], "completed")
+            self.assertEqual(checkpoint_statuses["report"], "completed")
 
             history_events = [
                 json.loads(line)
                 for line in history_path.read_text(encoding="utf-8").splitlines()
                 if line.strip()
             ]
-            self.assertEqual(history_events[-2]["event_type"], "candidate-created")
-            self.assertEqual(history_events[-2]["source"]["kind"], "dream-apply")
+            self.assertEqual(history_events[-3]["event_type"], "candidate-created")
+            self.assertEqual(history_events[-3]["source"]["kind"], "dream-apply")
+            self.assertEqual(history_events[-2]["event_type"], "observation")
+            self.assertEqual(history_events[-2]["source"]["kind"], "dream-maintenance")
+            self.assertIn("Dream experiment", history_events[-2]["target"]["task_summary"])
             self.assertEqual(history_events[-1]["event_type"], "observation")
             self.assertEqual(history_events[-1]["source"]["kind"], "dream-maintenance")
+            self.assertEqual(history_events[-1]["event_id"], result["run_observation_event_id"])
+            self.assertEqual(
+                history_events[-1]["target"]["route_hint"],
+                ["predictive-kb", "agent-lifecycle", "exploration"],
+            )
+
+    def test_dream_run_can_validate_existing_candidate_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            history_path = repo_root / "kb" / "history" / "events.jsonl"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+
+            write_entry(
+                repo_root / "kb" / "candidates" / "cand-entry-validation.yaml",
+                {
+                    "id": "cand-entry-validation",
+                    "title": "Candidate entry needs direct validation",
+                    "type": "model",
+                    "scope": "public",
+                    "domain_path": ["engineering", "architecture", "refactor"],
+                    "cross_index": [],
+                    "related_cards": [],
+                    "tags": ["architecture", "refactor"],
+                    "trigger_keywords": ["architecture", "refactor"],
+                    "if": {"notes": "A candidate card exists without enough confirmation."},
+                    "action": {"description": "Validate the candidate against local retrieval evidence."},
+                    "predict": {"expected_result": "Dream can inspect the card without mutating trusted memory.", "alternatives": []},
+                    "use": {"guidance": "Keep validation read-only and write a history note."},
+                    "confidence": 0.4,
+                    "source": [{"origin": "test", "date": "2026-04-24"}],
+                    "status": "candidate",
+                    "updated_at": "2026-04-24",
+                },
+            )
+
+            result = run_dream_maintenance(
+                repo_root=repo_root,
+                run_id="kb-dream-entry-validation",
+                sleep_cooldown_minutes=0,
+            )
+
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(result["selected_experiment_count"], 1)
+            self.assertEqual(result["experiments"][0]["kind"], "entry-validation")
+            self.assertEqual(result["experiments"][0]["safety_tier"], "read-only")
+            self.assertTrue(result["experiments"][0]["is_executable"])
+            self.assertEqual(result["experiments"][0]["classification"], "validated")
+            self.assertEqual(result["created_candidate_count"], 0)
+
+            execution_plan_path = repo_root / result["artifact_paths"]["execution_plan_path"]
+            execution_plan_payload = json.loads(execution_plan_path.read_text(encoding="utf-8"))
+            self.assertEqual(execution_plan_payload["selected_experiment"]["kind"], "entry-validation")
+            self.assertEqual(execution_plan_payload["selected_experiment"]["safety_tier"], "read-only")
 
     def test_dream_run_skips_when_recent_sleep_run_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -281,8 +389,10 @@ class DreamMaintenanceTests(unittest.TestCase):
                 for line in history_path.read_text(encoding="utf-8").splitlines()
                 if line.strip()
             ]
+            self.assertEqual(history_events[-2]["event_type"], "observation")
+            self.assertEqual(history_events[-2]["context"]["suggested_action"], "taxonomy-change")
             self.assertEqual(history_events[-1]["event_type"], "observation")
-            self.assertEqual(history_events[-1]["context"]["suggested_action"], "taxonomy-change")
+            self.assertEqual(history_events[-1]["event_id"], result["run_observation_event_id"])
 
 
 if __name__ == "__main__":

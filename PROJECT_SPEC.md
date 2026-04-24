@@ -116,6 +116,8 @@ Each entry should have a `domain_path`, for example:
 
 This is the primary route through which the entry should be found.
 
+The primary route should normally describe the reusable function or direction of the lesson, not the project where the evidence happened. Project, repository, and product names belong in provenance, tags, trigger keywords, or explanatory text unless the card is intentionally project-specific.
+
 ### 4.2 Cross routes
 
 Each entry may also define `cross_index`, for example:
@@ -228,11 +230,13 @@ The repository should be organized so the file system itself supports the concep
 ├─ PROJECT_SPEC.md
 ├─ README.md
 ├─ docs/
+│  ├─ architecture_runbook.md
 │  ├─ dream_runbook.md
 │  └─ maintenance_runbook.md
 ├─ .agents/
 │  └─ skills/
 │     └─ local-kb-retrieve/
+│        ├─ ARCHITECT_PROMPT.md
 │        ├─ SKILL.md
 │        ├─ DREAM_PROMPT.md
 │        ├─ MAINTENANCE_PROMPT.md
@@ -244,6 +248,7 @@ The repository should be organized so the file system itself supports the concep
 │           ├─ kb_capture_candidate.py
 │           ├─ kb_consolidate.py
 │           ├─ kb_dream.py
+│           ├─ kb_architect.py
 │           ├─ kb_proposals.py
 │           ├─ kb_rollback.py
 │           └─ kb_taxonomy.py
@@ -258,6 +263,7 @@ The repository should be organized so the file system itself supports the concep
 │  ├─ routes.py
 │  ├─ feedback.py
 │  ├─ history.py
+│  ├─ architect.py
 │  ├─ consolidate.py
 │  ├─ proposals.py
 │  ├─ snapshots.py
@@ -427,11 +433,19 @@ All new knowledge should enter `kb/candidates/` or structured history first.
 
 Architecturally, promotion to `kb/public/` or `kb/private/` may eventually happen automatically during scheduled AI maintenance if the repository's safety rails are satisfied. The deciding step should come from AI judgment over the stored history, while the resulting update should still be logged, snapshotted, and reversible.
 
+The semantic maintenance boundary should preserve AI agency without allowing uncontrolled churn:
+
+- thresholds, repeated reviews, and weak-hit counts are review triggers, not final decisions
+- AI should decide whether a card should be kept, rewritten, promoted, demoted, deprecated, split, or merged after reading the card and supporting evidence
+- tooling should require an explicit semantic-review plan with evidence ids, rationale, risk level, expected retrieval effect, and rollback notes before applying meaning-bearing changes
+- each semantic-review apply run should modify at most 3 trusted cards, including trusted rewrites, confidence changes, deprecations, demotions, and candidate promotions into trusted scope
+- candidate and trusted-card text changes should trigger display-translation cleanup before the sleep pass is considered complete
+
 For the current implementation, keep the operational boundary simpler:
 
 - active task threads should prefer `kb/candidates/` or structured history writes
-- trusted-scope rewrites and promotions should be treated as dedicated maintenance work
-- if the current tooling does not yet implement a trusted-scope auto-promotion path cleanly, leave those changes proposal-only instead of implying that the path already exists
+- trusted-scope rewrites and promotions should be treated as dedicated semantic maintenance work
+- if the current tooling does not yet implement a specific semantic change cleanly, leave that change proposal-only instead of implying that the path already exists
 
 ### 10.2 Conflict handling
 
@@ -463,6 +477,7 @@ The repository should distinguish between:
 The correct handling is different for each case:
 
 - **weak or one-off observations** should usually be forgotten by the retrieval surface but retained in history
+- **complete single observations** may create low-confidence candidate scaffolds when the route is specific, the task summary is present, and the observation already states scenario, action, and observed result; these are retrieval seeds, not trusted rules
 - **rejected candidates** should leave a rejection trace in history and should not remain in the active candidate queue
 - **obsolete trusted cards** should usually become `deprecated`, not silently deleted
 
@@ -610,6 +625,7 @@ As the repository evolves, it is reasonable to add a consolidation or “sleep�
 - use tooling to apply the chosen updates to cards and taxonomy
 - write snapshots and change reasons before finalizing updates
 - preserve enough state to support rollback
+- cap each automated semantic-review pass to a small trusted-card budget; the current default is 3 trusted cards per run
 
 It may update trusted cards during scheduled consolidation, but those updates should never be opaque. Every automatic merge should leave an audit trail that captures what AI changed and why.
 
@@ -627,6 +643,29 @@ This principle is compatible with the file-based design of the repository. The e
 
 The scheduled maintenance flow should preferably run in an independent thread, chat, or automation so that deep memory upkeep does not interrupt the main task thread. A daily or periodic maintenance conversation is a valid operating model for this repository.
 
+The sleep flow is itself a KB task. Each sleep pass should therefore begin with a
+small route-first retrieval against prior maintenance lessons, usually under
+`system/knowledge-library/maintenance`, before it inspects taxonomy, proposals, or
+apply actions. Retrieved maintenance cards are bounded context, not authority over
+the current repository state.
+
+Each sleep pass should also create and maintain a visible execution plan before
+stateful maintenance work begins. The plan should list the concrete checkpoints for
+the pass and track each item as pending, in progress, completed, skipped with a
+reason, or blocked with a concrete blocker. A sleep pass should not stop after a
+short proposal or one successful command while safe required checkpoints remain.
+If a command exposes a supported low-risk repair, the maintenance agent should try
+that repair and rerun the relevant validation before finalizing. Unsupported or
+higher-risk issues should be recorded as proposal-only or as a final observation,
+then the pass should continue through remaining safe checkpoints.
+
+Each non-empty sleep pass should also end with an explicit postflight check. If the
+pass exposed a reusable maintenance lesson, route gap, card weakness, split signal,
+translation gap, process weakness, or apply hazard, the pass should append one
+structured observation to history before finalizing. That final observation is a
+record for a future maintenance pass; it should not trigger an immediate recursive
+consolidation loop in the same pass.
+
 #### Related-card links
 
 The library may maintain a small direct `related_cards` field on cards when repeated observation history shows that the same cards are materially used together.
@@ -640,6 +679,46 @@ This field should stay intentionally simple:
 - it should usually keep no more than 3 related cards per entry
 
 The maintenance layer may keep richer support counts, ratios, decay, or ranking logic in history and proposal artifacts, but the card surface should remain only the current consolidated result.
+
+#### Display-language translations
+
+The canonical card text should stay in English in the top-level fields. Human-facing translations may be stored under an optional `i18n` block.
+
+For v0.1, the supported display translation is:
+
+- `i18n.zh-CN`
+
+Localizable fields are limited to the human text surfaces:
+
+- `title`
+- `if.notes`
+- `action.description`
+- `predict.expected_result`
+- `predict.alternatives[].when`
+- `predict.alternatives[].result`
+- `use.guidance`
+
+Route values are not localizable source fields. `domain_path`, `cross_index`, taxonomy
+routes, search hints, and file paths should remain canonical English route segments.
+Human-facing UIs may render those route segments through a display-label map such as
+`zh-CN`, but that display layer must not rename the stored route or change retrieval
+behavior.
+
+Retrieval and maintenance should treat the English top-level fields as the source of truth. The UI may render `i18n.zh-CN` when the user chooses Chinese, but it must fall back to the English field whenever a translation is missing.
+
+Chinese text should normally be filled during sleep maintenance, not opportunistically during every active task. The maintenance pattern is:
+
+- detect which cards are missing zh-CN display fields
+- detect which route segments are missing zh-CN display labels
+- ask AI maintenance to produce an auditable translation plan
+- apply that plan with file-based tooling
+- write an `i18n-updated` history event that records the plan path and remaining missing fields
+
+For route segment display labels, the current low-risk output is a review action that asks
+AI maintenance to patch the display-label map. It should not auto-translate unknown
+segments at runtime and should not rewrite canonical route fields.
+
+The code should not use an external translation service, embedding model, vector database, or hidden remote process. AI provides the translation judgment; the repository tooling only applies and logs the selected text.
 
 ### 10.9 Observation-first card creation
 
@@ -675,6 +754,8 @@ The source context should preserve provenance when available, such as:
 - which thread or conversation it came from
 - which project or repository produced the evidence
 - which workspace root or local path context it came from
+
+This provenance should explain where the evidence came from, but it should not automatically become the card's main retrieval route during sleep consolidation.
 
 During sleep maintenance, this provenance should not be treated as passive metadata only. Timestamps plus `project_ref`, `thread_ref`, and `workspace_root` should let AI reconstruct **chronological episodes** inside the same project or workflow, so maintenance can see that one path was tried earlier and a better path emerged later.
 
@@ -767,6 +848,7 @@ The required operating rules are:
 
 - dream and sleep must run in separate automations, threads, or maintenance sessions
 - they must not run concurrently on the same repository state
+- dream should not duplicate route-candidate creation that current sleep consolidation already marks as eligible
 - dream should write only to history, proposal artifacts, or `kb/candidates/`
 - dream should never directly rewrite `kb/public/` or `kb/private/`
 - dream-derived evidence should preserve explicit provenance so later maintenance can tell it apart from normal task evidence
@@ -817,6 +899,58 @@ The simplest acceptable write-back policy is:
 - sleep maintenance may later review these dream outputs, but trusted promotion should still depend on later grounded evidence from real tasks or repeated low-risk confirmation
 
 Dream mode is therefore not a second consolidation pass. It is a bounded hypothesis-generation and validation lane whose outputs remain provisional until later evidence supports them.
+
+### 10.11 Separate Architect mechanism maintenance
+
+The repository may also support a third scheduled **Architect** lane, but it must stay narrower than general self-refactoring.
+
+The purpose of Architect is mechanism maintenance:
+
+- review Sleep, Dream, Architect, retrieval, installation, validation, rollback, and proposal-governance signals
+- maintain a mechanism proposal queue
+- cluster duplicate proposals
+- decide whether mechanism proposals are watching, ready for patch, ready for apply, applied, rejected, or superseded
+- apply only narrow, high-evidence, high-safety mechanism changes with immediate validation
+
+Architect must not maintain card content. These remain Sleep responsibilities:
+
+- trusted-card rewrites
+- candidate promotion
+- card merge, split, deprecation, or deletion
+- card confidence changes
+- user-specific knowledge maintenance
+
+Each Architect pass is itself a KB task. It must begin with route-first retrieval against prior maintenance lessons, usually under `system/knowledge-library/maintenance`, and it must end with an explicit KB postflight observation.
+
+Architect uses only three review axes:
+
+- `Evidence`: whether the mechanism signal is repeated and grounded
+- `Impact`: how much it affects KB operating reliability
+- `Safety`: how narrow, testable, and reversible the change is
+
+Do not replace these with a large weighted scoring system. The point is to keep autonomous maintenance auditable.
+
+Allowed statuses are:
+
+- `new`
+- `watching`
+- `ready-for-patch`
+- `ready-for-apply`
+- `applied`
+- `rejected`
+- `superseded`
+
+There is no human-review status. High-risk or uncertain proposals remain under long observation as `watching` until evidence and safety improve.
+
+The daily Architect pass should not be forced to invent a new proposal. It must maintain the queue every day, which can mean creating, merging, upgrading, applying, rejecting, superseding, or explicitly doing nothing when no signal crosses the threshold.
+
+The default cadence is after Sleep and Dream, for example:
+
+- `KB Sleep`: 12:00
+- `KB Dream`: 13:00
+- `KB Architect`: 14:00
+
+The installer should provision all three repository-managed automations, and the install check should verify all three.
 
 ## 11. Implementation Plan for Codex
 

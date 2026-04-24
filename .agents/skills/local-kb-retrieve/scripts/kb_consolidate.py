@@ -23,17 +23,41 @@ def main() -> None:
     parser.add_argument("--run-id", default="")
     parser.add_argument("--max-events", type=int, default=0)
     parser.add_argument("--emit-files", action="store_true")
-    parser.add_argument("--apply-mode", choices=["none", "new-candidates", "related-cards", "cross-index"], default="none")
+    parser.add_argument(
+        "--apply-mode",
+        choices=["none", "new-candidates", "related-cards", "cross-index", "i18n-zh-CN", "semantic-review"],
+        default="none",
+    )
+    parser.add_argument("--i18n-plan", default="", help="AI-authored zh-CN translation plan YAML for i18n apply mode.")
+    parser.add_argument(
+        "--semantic-review-plan",
+        default="",
+        help="AI-authored semantic review plan YAML for semantic-review apply mode.",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     repo_root = resolve_repo_root(args.repo_root)
+    i18n_plan_path = None
+    if args.i18n_plan:
+        raw_i18n_plan_path = Path(args.i18n_plan)
+        i18n_plan_path = raw_i18n_plan_path if raw_i18n_plan_path.is_absolute() else repo_root / raw_i18n_plan_path
+    semantic_review_plan_path = None
+    if args.semantic_review_plan:
+        raw_semantic_review_plan_path = Path(args.semantic_review_plan)
+        semantic_review_plan_path = (
+            raw_semantic_review_plan_path
+            if raw_semantic_review_plan_path.is_absolute()
+            else repo_root / raw_semantic_review_plan_path
+        )
     result = consolidate_history(
         repo_root=repo_root,
         run_id=args.run_id or None,
         emit_files=args.emit_files,
         max_events=args.max_events or None,
         apply_mode=args.apply_mode,
+        i18n_plan_path=i18n_plan_path,
+        semantic_review_plan_path=semantic_review_plan_path,
     )
 
     if args.json:

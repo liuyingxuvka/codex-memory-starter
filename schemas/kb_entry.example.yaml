@@ -36,6 +36,22 @@ predict:
       result: A more structured and engineering-oriented presentation is likely preferred.
 use:
   guidance: How Codex should use this prediction in its own output or behavior.
+# Optional display translations. English fields above remain the canonical source.
+# Sleep maintenance may fill or refresh these fields from an AI-authored plan.
+i18n:
+  zh-CN:
+    title: 中文显示标题
+    if:
+      notes: 中文适用场景
+    action:
+      description: 中文动作或条件描述
+    predict:
+      expected_result: 中文预测结果
+      alternatives:
+        - when: 中文分支条件
+          result: 中文分支结果
+    use:
+      guidance: 中文使用方式
 confidence: 0.8
 source:
   - origin: where this came from

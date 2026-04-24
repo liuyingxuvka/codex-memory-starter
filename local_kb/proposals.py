@@ -105,6 +105,7 @@ def normalize_proposal_stub(repo_root: Path, path: Path, payload: dict[str, Any]
         "cross_index_suggestion": _normalize_dict(payload.get("cross_index_suggestion")),
         "related_card_suggestion": _normalize_dict(payload.get("related_card_suggestion")),
         "split_review_suggestion": _normalize_dict(payload.get("split_review_suggestion")),
+        "semantic_review_suggestion": _normalize_dict(payload.get("semantic_review_suggestion")),
         "stub_path": relative_repo_path(repo_root, path),
         "missing_fields": missing_fields,
         "valid": not missing_fields,
@@ -263,6 +264,11 @@ def format_proposal_report(report: dict[str, Any]) -> str:
         split_recommendation = str(split_review.get("recommendation", "") or "").strip()
         if split_recommendation:
             split_note = f", split_review={split_recommendation}"
+        semantic_note = ""
+        semantic_review = stub.get("semantic_review_suggestion", {})
+        supported_decisions = normalize_string_list(semantic_review.get("auto_apply_supported_decisions", []))
+        if supported_decisions:
+            semantic_note = f", semantic_review={','.join(supported_decisions)}"
         related_note = ""
         related_cards = normalize_string_list(stub.get("related_card_suggestion", {}).get("suggested_related_cards", []))
         if related_cards:
@@ -278,6 +284,7 @@ def format_proposal_report(report: dict[str, Any]) -> str:
                 f"priority={float(stub.get('priority_score', 0.0) or 0.0):.2f} "
                 f"events={int(stub.get('event_count', 0) or 0)}"
                 f"{split_note}{related_note}{cross_index_note}{invalid_note}"
+                f"{semantic_note}"
             )
         )
     return "\n".join(lines)

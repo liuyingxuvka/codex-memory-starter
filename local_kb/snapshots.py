@@ -5,15 +5,16 @@ from pathlib import Path
 from typing import Any
 
 from local_kb.consolidate import consolidation_run_dir, sanitize_run_id
-from local_kb.store import history_events_path
+from local_kb.store import history_events_path, write_yaml_file
 
 
 SCHEMA_VERSION = 1
 SNAPSHOT_FILENAME = "snapshot.json"
 PROPOSAL_FILENAME = "proposal.json"
+APPLY_FILENAME = "apply.json"
 MANIFEST_FILENAME = "rollback_manifest.json"
 ROLLBACK_MANIFEST_KIND = "local-kb-rollback-manifest"
-SUPPORTED_RESTORE_ARTIFACTS = ("history-events",)
+SUPPORTED_RESTORE_ARTIFACTS = ("history-events", "semantic-review-entries")
 
 
 def relative_repo_path(repo_root: Path, path: Path) -> str:
@@ -141,9 +142,58 @@ def _build_history_events_artifact(
     }
 
 
+def _semantic_review_restore_entries(apply_payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not apply_payload or apply_payload.get("apply_mode") != "semantic-review":
+        return []
+    entries: list[dict[str, Any]] = []
+    for item in apply_payload.get("updated_entries", []):
+        if not isinstance(item, dict):
+            continue
+        previous_entry = item.get("previous_entry")
+        previous_entry_path = str(item.get("previous_entry_path", "") or "").strip()
+        updated_entry_path = str(item.get("entry_path", "") or "").strip()
+        if isinstance(previous_entry, dict) and previous_entry_path:
+            entries.append(
+                {
+                    "entry_id": str(item.get("entry_id", "") or "").strip(),
+                    "previous_entry_path": previous_entry_path,
+                    "updated_entry_path": updated_entry_path,
+                    "previous_entry": previous_entry,
+                }
+            )
+    return entries
+
+
+def _build_semantic_review_entries_artifact(
+    repo_root: Path,
+    run_dir: Path,
+    apply_payload: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    entries = _semantic_review_restore_entries(apply_payload)
+    if not apply_payload and not (run_dir / APPLY_FILENAME).exists():
+        return None
+    if not entries:
+        return None
+    return {
+        "artifact_id": "semantic-review-entries",
+        "kind": "semantic-review-entry-files",
+        "path": "<multiple-entry-files>",
+        "exists": True,
+        "low_risk": False,
+        "restorable": True,
+        "restore_strategy": "rewrite-entry-files-from-apply-previous-entry-payloads",
+        "source_path": relative_repo_path(repo_root, run_dir / APPLY_FILENAME),
+        "details": {
+            "entry_count": len(entries),
+            "entry_ids": [entry["entry_id"] for entry in entries if entry.get("entry_id")],
+        },
+    }
+
+
 def build_rollback_manifest(repo_root: Path, run_dir: Path) -> dict[str, Any]:
     snapshot_payload = load_json_object(run_dir / SNAPSHOT_FILENAME)
     proposal_payload = load_json_object(run_dir / PROPOSAL_FILENAME)
+    apply_payload = load_json_object(run_dir / APPLY_FILENAME)
     run_id = str(
         (snapshot_payload or {}).get("run_id")
         or (proposal_payload or {}).get("run_id")
@@ -160,6 +210,9 @@ def build_rollback_manifest(repo_root: Path, run_dir: Path) -> dict[str, Any]:
         _build_proposal_artifact(repo_root, run_dir, proposal_payload),
         _build_history_events_artifact(repo_root, run_dir, snapshot_payload),
     ]
+    semantic_review_artifact = _build_semantic_review_entries_artifact(repo_root, run_dir, apply_payload)
+    if semantic_review_artifact:
+        artifacts.append(semantic_review_artifact)
     restorable_ids = [artifact["artifact_id"] for artifact in artifacts if artifact["restorable"]]
 
     return {
@@ -206,6 +259,9 @@ def restore_artifact(
     if not artifact.get("restorable"):
         raise ValueError(f"Artifact {artifact_id} is not restorable for this run.")
 
+    if artifact_id == "semantic-review-entries":
+        return restore_semantic_review_entries(repo_root, manifest, artifact, dry_run=dry_run)
+
     source_path = resolve_repo_path(repo_root, str(artifact.get("source_path", "") or ""))
     snapshot_payload = load_json_object(source_path)
     if not snapshot_payload:
@@ -236,3 +292,58 @@ def restore_artifact(
 
     result["restored"] = True
     return result
+
+
+def _path_within_repo(repo_root: Path, path: Path) -> bool:
+    try:
+        path.resolve().relative_to(repo_root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def restore_semantic_review_entries(
+    repo_root: Path,
+    manifest: dict[str, Any],
+    artifact: dict[str, Any],
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    source_path = resolve_repo_path(repo_root, str(artifact.get("source_path", "") or ""))
+    apply_payload = load_json_object(source_path)
+    if not apply_payload:
+        raise ValueError(f"Missing apply payload for semantic-review restore: {source_path}")
+    entries = _semantic_review_restore_entries(apply_payload)
+    if not entries:
+        raise ValueError(f"Apply payload does not contain semantic-review previous entry payloads: {source_path}")
+
+    restored_entries: list[dict[str, Any]] = []
+    for entry in entries:
+        previous_entry_path = resolve_repo_path(repo_root, str(entry["previous_entry_path"]))
+        updated_entry_path = resolve_repo_path(repo_root, str(entry.get("updated_entry_path", "") or entry["previous_entry_path"]))
+        if not _path_within_repo(repo_root, previous_entry_path):
+            raise ValueError(f"Refusing to restore outside repository: {previous_entry_path}")
+        if not _path_within_repo(repo_root, updated_entry_path):
+            raise ValueError(f"Refusing to remove outside repository: {updated_entry_path}")
+        restored_entries.append(
+            {
+                "entry_id": str(entry.get("entry_id", "") or ""),
+                "previous_entry_path": relative_repo_path(repo_root, previous_entry_path),
+                "updated_entry_path": relative_repo_path(repo_root, updated_entry_path),
+            }
+        )
+        if dry_run:
+            continue
+        write_yaml_file(previous_entry_path, entry["previous_entry"])
+        if updated_entry_path != previous_entry_path and updated_entry_path.exists():
+            updated_entry_path.unlink()
+
+    return {
+        "run_id": str(manifest.get("run_id", "") or ""),
+        "artifact_id": "semantic-review-entries",
+        "source_path": relative_repo_path(repo_root, source_path),
+        "entry_count": len(entries),
+        "restored_entries": restored_entries,
+        "dry_run": dry_run,
+        "restored": not dry_run,
+    }

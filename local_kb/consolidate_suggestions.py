@@ -8,6 +8,7 @@ from local_kb.common import parse_route_segments
 from local_kb.consolidate_events import (
     ACTION_BASE_SCORES,
     APPLY_MODE_CROSS_INDEX,
+    APPLY_MODE_I18N_ZH_CN,
     APPLY_MODE_NEW_CANDIDATES,
     APPLY_MODE_RELATED_CARDS,
     CROSS_INDEX_MAX_COUNT,
@@ -34,20 +35,37 @@ from local_kb.consolidate_events import (
     summarize_provenance,
     supporting_events_for_action,
 )
+from local_kb.semantic_review import (
+    APPLY_MODE_SEMANTIC_REVIEW,
+    build_semantic_review_suggestion,
+    is_semantic_review_action,
+)
 
 NEW_CANDIDATE_ALTERNATIVE_LIMIT = 3
 
 
 def build_next_step(action_type: str, target_kind: str, target_ref: str, routes: list[str]) -> str:
+    if action_type == "review-route-i18n":
+        return (
+            "Inspect missing route segment display labels and patch the zh-CN display map; "
+            "do not rename canonical routes or search paths."
+        )
     if target_kind == "entry":
         if action_type == "review-candidate":
-            return f"Inspect candidate entry {target_ref} during AI consolidation and decide whether it should stay a candidate or be promoted."
+            return (
+                f"Inspect candidate entry {target_ref} during AI semantic review and decide whether it "
+                "should stay a candidate, be rewritten, or be promoted."
+            )
         if action_type == "review-confidence":
-            return f"Inspect weakening or contradictory evidence for entry {target_ref} and decide whether confidence should fall, scope should narrow, or the card should be deprecated."
+            return (
+                f"Inspect weakening or contradictory evidence for entry {target_ref} and decide whether "
+                "semantic review should keep it, adjust confidence, narrow scope, or deprecate it."
+            )
         if action_type == "review-entry-update":
             return (
                 f"Inspect timeline evidence for entry {target_ref} and decide whether the current card "
-                "needs an AI-authored update, narrowing, or split review."
+                "needs an AI-authored semantic-review decision such as keep, rewrite, split, merge, "
+                "promote, demote, or deprecate."
             )
         if action_type == "review-related-cards":
             return (
@@ -58,6 +76,11 @@ def build_next_step(action_type: str, target_kind: str, target_ref: str, routes:
             return (
                 f"Inspect route evidence for {target_ref} and decide whether its "
                 "stable alternate cross-index routes should change."
+            )
+        if action_type == "review-i18n":
+            return (
+                f"Inspect entry {target_ref} and provide an AI-authored zh-CN translation plan "
+                "for missing display-language fields before applying i18n maintenance."
             )
     if action_type == "review-code-change":
         if target_kind == "route" and target_ref:
@@ -86,6 +109,10 @@ def suggested_artifact_kind(action_type: str, target_kind: str) -> str:
         return "related-card-update-proposal"
     if action_type == "review-cross-index":
         return "cross-index-update-proposal"
+    if action_type == "review-i18n":
+        return "i18n-translation-plan"
+    if action_type == "review-route-i18n":
+        return "route-i18n-label-patch"
     if action_type == "review-entry-update":
         return "entry-update-proposal"
     if action_type == "review-observation-evidence":
@@ -212,7 +239,14 @@ def suggest_new_candidate_scaffold(
     )
     alternatives, contrastive_event_count = _build_contrastive_alternatives(supporting_events)
 
-    if_notes_parts = [f"Auto-created from {int(action.get('event_count', 0) or 0)} grouped new-candidate observations."]
+    event_count = int(action.get("event_count", 0) or 0)
+    seed_candidate = event_count == 1
+    if seed_candidate:
+        if_notes_parts = [
+            "Auto-created from 1 complete predictive observation as a low-confidence seed candidate."
+        ]
+    else:
+        if_notes_parts = [f"Auto-created from {event_count} grouped new-candidate observations."]
     if task_summaries:
         if_notes_parts.append(f"Example task summaries: {_summarize_text_examples(task_summaries)}.")
     if scenarios:
@@ -244,6 +278,10 @@ def suggest_new_candidate_scaffold(
     guidance_parts = [
         "Review the cited observations and replace this auto-created scaffold with a specific predictive card before any promotion."
     ]
+    if seed_candidate:
+        guidance_parts.append(
+            "Treat this as a retrieval seed, not a trusted rule; require later evidence before promotion or high-confidence reliance."
+        )
     if operational_uses:
         guidance_parts.append(_summarize_text_examples(operational_uses, limit=2))
     elif reuse_judgments:
@@ -258,7 +296,11 @@ def suggest_new_candidate_scaffold(
         )
 
     return {
-        "title": f"Contrastive route lesson in {route_title}" if alternatives else f"Repeated route gap in {route_title}",
+        "title": (
+            f"Contrastive route lesson in {route_title}"
+            if alternatives
+            else f"{'Seed' if seed_candidate else 'Repeated'} route gap in {route_title}"
+        ),
         "if": {"notes": " ".join(if_notes_parts).strip()},
         "action": {"description": action_description},
         "predict": {
@@ -1011,6 +1053,27 @@ def describe_apply_eligibility(
             "eligible": False,
             "reason": "Cross-index apply eligibility depends on the derived route-support suggestion.",
         }
+    if action["action_type"] == "review-i18n":
+        return {
+            "supported_mode": APPLY_MODE_I18N_ZH_CN,
+            "eligible": False,
+            "reason": "i18n apply requires an AI-authored translation plan file.",
+        }
+    if action["action_type"] == "review-route-i18n":
+        return {
+            "supported_mode": "manual-code-change",
+            "eligible": False,
+            "reason": (
+                "Route display labels require an AI-authored code patch; "
+                "canonical routes must not be auto-renamed."
+            ),
+        }
+    if is_semantic_review_action(action):
+        return {
+            "supported_mode": APPLY_MODE_SEMANTIC_REVIEW,
+            "eligible": False,
+            "reason": "Semantic-review apply requires an AI-authored semantic review plan file.",
+        }
     if action["action_type"] != "consider-new-candidate":
         return {
             "supported_mode": APPLY_MODE_NEW_CANDIDATES,
@@ -1030,22 +1093,42 @@ def describe_apply_eligibility(
             "eligible": False,
             "reason": "Automatic apply requires a semantically specific route with at least 3 segments.",
         }
-    if int(action.get("event_count", 0)) < 2:
-        return {
-            "supported_mode": APPLY_MODE_NEW_CANDIDATES,
-            "eligible": False,
-            "reason": "Automatic apply requires at least 2 grouped new-candidate observations for the same route.",
-        }
     if not collect_task_summaries(supporting_events):
         return {
             "supported_mode": APPLY_MODE_NEW_CANDIDATES,
             "eligible": False,
             "reason": "Automatic apply requires supporting observations with task summaries.",
         }
+    support_count = int(action.get("event_count", 0) or 0)
+    complete_predictive_count = sum(1 for event in supporting_events if has_predictive_evidence(event))
+    if support_count >= 2:
+        return {
+            "supported_mode": APPLY_MODE_NEW_CANDIDATES,
+            "eligible": True,
+            "candidate_creation_mode": "grouped",
+            "complete_predictive_event_count": complete_predictive_count,
+            "reason": "Eligible for conservative candidate scaffold creation.",
+        }
+    if support_count == 1:
+        if complete_predictive_count >= 1:
+            return {
+                "supported_mode": APPLY_MODE_NEW_CANDIDATES,
+                "eligible": True,
+                "candidate_creation_mode": "seed",
+                "complete_predictive_event_count": complete_predictive_count,
+                "reason": "Eligible for low-confidence seed candidate creation from one complete predictive observation.",
+            }
+        return {
+            "supported_mode": APPLY_MODE_NEW_CANDIDATES,
+            "eligible": False,
+            "complete_predictive_event_count": complete_predictive_count,
+            "reason": "Single-observation candidate creation requires complete predictive evidence: scenario, action_taken, and observed_result.",
+        }
     return {
         "supported_mode": APPLY_MODE_NEW_CANDIDATES,
-        "eligible": True,
-        "reason": "Eligible for conservative candidate scaffold creation.",
+        "eligible": False,
+        "complete_predictive_event_count": complete_predictive_count,
+        "reason": "Automatic apply requires at least 1 supporting new-candidate observation.",
     }
 
 
@@ -1130,5 +1213,16 @@ def annotate_actions_with_apply_eligibility(
         )
         if split_review:
             annotated_action["split_review_suggestion"] = split_review
+        semantic_review = build_semantic_review_suggestion(
+            action=annotated_action,
+            entry_lookup=entry_lookup,
+        )
+        if semantic_review:
+            annotated_action["semantic_review_suggestion"] = semantic_review
+            annotated_action["apply_eligibility"] = {
+                "supported_mode": APPLY_MODE_SEMANTIC_REVIEW,
+                "eligible": False,
+                "reason": "Semantic-review apply requires an AI-authored semantic review plan file.",
+            }
         annotated.append(annotated_action)
     return annotated

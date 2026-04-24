@@ -48,6 +48,7 @@ def get_body_text(data: dict[str, Any]) -> str:
             normalize_text(data.get("predict")),
             normalize_text(data.get("use")),
             normalize_text(data.get("source")),
+            normalize_text(data.get("i18n")),
         ]
         if part
     )
@@ -65,20 +66,23 @@ def score_entry(entry: Entry, query_tokens: list[str], path_hint_segments: list[
     domain_path = parse_route_segments(data.get("domain_path", []))
     cross_index_segments = parse_route_segments(data.get("cross_index", []))
 
-    score = 0.0
+    relevance_score = 0.0
     if path_hint_segments:
-        score += longest_common_prefix(path_hint_segments, domain_path) * 8.0
-        score += unique_overlap(path_hint_segments, domain_path) * 5.0
-        score += unique_overlap(path_hint_segments, cross_index_segments) * 4.0
+        relevance_score += longest_common_prefix(path_hint_segments, domain_path) * 8.0
+        relevance_score += unique_overlap(path_hint_segments, domain_path) * 5.0
+        relevance_score += unique_overlap(path_hint_segments, cross_index_segments) * 4.0
 
-    score += unique_overlap(query_tokens, title_tokens) * 3.0
-    score += unique_overlap(query_tokens, tag_tokens) * 5.0
-    score += unique_overlap(query_tokens, trigger_tokens) * 4.0
-    score += unique_overlap(query_tokens, body_tokens) * 1.0
+    relevance_score += unique_overlap(query_tokens, title_tokens) * 3.0
+    relevance_score += unique_overlap(query_tokens, tag_tokens) * 5.0
+    relevance_score += unique_overlap(query_tokens, trigger_tokens) * 4.0
+    relevance_score += unique_overlap(query_tokens, body_tokens) * 1.0
 
-    score += confidence * 2.0
+    if relevance_score <= 0:
+        return 0.0
+
+    score = relevance_score + confidence * 2.0
     if status == "trusted":
-        score += 2.0
+        score += 4.0
     if status == "deprecated":
         score -= 5.0
     return score

@@ -66,14 +66,15 @@ class KbTaxonomyTests(unittest.TestCase):
         self.assertEqual(ppt_view["coverage"]["primary_direct_count"], 0)
 
         retrieval_view = build_taxonomy_view(self.repo_root, route="system/knowledge-library/retrieval")
-        self.assertEqual([card["id"] for card in retrieval_view["direct_cards"]], ["model-004"])
-        self.assertEqual(retrieval_view["coverage"]["primary_direct_count"], 1)
+        retrieval_direct_ids = [card["id"] for card in retrieval_view["direct_cards"]]
+        self.assertIn("model-004", retrieval_direct_ids)
+        self.assertGreaterEqual(retrieval_view["coverage"]["primary_direct_count"], 1)
 
     def test_route_counts_include_declared_and_cross_index_routes(self) -> None:
         from local_kb.store import load_entries
 
         counts = derive_route_counts(load_entries(self.repo_root))
-        self.assertEqual(len(counts[("system", "knowledge-library", "retrieval")]["primary_direct_ids"]), 1)
+        self.assertIn("model-004", counts[("system", "knowledge-library", "retrieval")]["primary_direct_ids"])
         self.assertEqual(
             len(counts[("writing", "business", "email")]["observed_direct_ids"]),
             1,

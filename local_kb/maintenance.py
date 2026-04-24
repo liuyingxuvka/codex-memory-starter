@@ -12,6 +12,7 @@ DECISION_EVENT_TYPES = {
     "observation-ignored",
     "candidate-rejected",
     "confidence-reviewed",
+    "semantic-reviewed",
     "split-reviewed",
 }
 

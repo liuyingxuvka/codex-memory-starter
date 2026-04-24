@@ -16,3 +16,5 @@ kb/history/*
 
 kb/candidates/*.yaml
 kb/history/consolidation/
+.local/
+tmp/

@@ -8,9 +8,61 @@ from pathlib import Path
 import yaml
 
 from local_kb.consolidate import consolidate_history
+from local_kb.consolidate_apply import apply_new_candidate_actions
 
 
 class ConsolidateApplyModeTests(unittest.TestCase):
+    def test_new_candidate_apply_skips_actions_from_other_apply_modes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            history_path = repo_root / "kb" / "history" / "events.jsonl"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+
+            events = [
+                {
+                    "event_id": "obs-related-1",
+                    "event_type": "observation",
+                    "created_at": "2026-04-19T08:09:00+00:00",
+                    "source": {"kind": "task", "agent": "worker-1"},
+                    "target": {
+                        "kind": "task-observation",
+                        "route_hint": ["codex", "runtime-behavior", "tool-environment"],
+                        "task_summary": "Need related-card update only",
+                    },
+                    "rationale": "next=update-card",
+                    "context": {"suggested_action": "update-card"},
+                },
+            ]
+            with history_path.open("w", encoding="utf-8") as handle:
+                for event in events:
+                    handle.write(json.dumps(event) + "\n")
+
+            summary = apply_new_candidate_actions(
+                repo_root=repo_root,
+                actions=[
+                    {
+                        "action_key": "review-related-cards::entry::model-runtime",
+                        "action_type": "review-related-cards",
+                        "target": {"kind": "entry", "ref": "model-runtime"},
+                        "event_count": 1,
+                        "event_ids": ["obs-related-1"],
+                        "apply_eligibility": {
+                            "supported_mode": "related-cards",
+                            "eligible": True,
+                            "reason": "Repeated co-use suggests a stable direct related-card link set.",
+                        },
+                    }
+                ],
+                events=events,
+                run_id="wrong-mode",
+                generated_at="2026-04-19T08:30:00+00:00",
+            )
+
+            self.assertEqual(summary["created_candidate_count"], 0)
+            self.assertEqual(summary["skipped_action_count"], 1)
+            self.assertIn("related-cards apply mode", summary["skipped_actions"][0]["reason"])
+            self.assertFalse((repo_root / "kb" / "candidates").exists())
+
     def test_apply_mode_creates_candidate_for_grouped_route_actions_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -73,6 +125,8 @@ class ConsolidateApplyModeTests(unittest.TestCase):
             self.assertEqual(result["apply_mode"], "new-candidates")
             self.assertEqual(result["apply_summary"]["created_candidate_count"], 1)
             self.assertEqual(result["apply_summary"]["skipped_action_count"], 5)
+            self.assertTrue(result["apply_summary"]["i18n_followup"]["required"])
+            self.assertEqual(result["apply_summary"]["i18n_followup"]["missing_entry_count"], 1)
             self.assertIn("snapshot_path", result["artifact_paths"])
             self.assertIn("proposal_path", result["artifact_paths"])
             self.assertIn("apply_path", result["artifact_paths"])
@@ -116,7 +170,73 @@ class ConsolidateApplyModeTests(unittest.TestCase):
                 created_candidate["action_key"],
             )
 
-    def test_apply_mode_skips_single_observation_route_group(self) -> None:
+    def test_apply_mode_creates_low_confidence_seed_candidate_from_complete_single_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            history_path = repo_root / "kb" / "history" / "events.jsonl"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+
+            event = {
+                "event_id": "obs-new-cand-1",
+                "event_type": "observation",
+                "created_at": "2026-04-19T08:09:00+00:00",
+                "source": {"kind": "task", "agent": "worker-1"},
+                "target": {
+                    "kind": "task-observation",
+                    "route_hint": ["work", "reporting", "ppt"],
+                    "task_summary": "Need a reusable slide-outline card",
+                },
+                "rationale": "next=new-candidate",
+                "context": {
+                    "suggested_action": "new-candidate",
+                    "predictive_observation": {
+                        "scenario": "Slide-outline tasks repeatedly need a reusable starting structure.",
+                        "action_taken": "Create a route-specific seed candidate from the complete observation.",
+                        "observed_result": "The lesson becomes retrievable for later maintenance without being trusted yet.",
+                        "operational_use": "Use the seed only as provisional scaffolding until more evidence arrives.",
+                    },
+                },
+            }
+            history_path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+            result = consolidate_history(
+                repo_root=repo_root,
+                run_id="apply-single",
+                apply_mode="new-candidates",
+            )
+
+            self.assertEqual(result["candidate_action_count"], 1)
+            self.assertEqual(result["apply_summary"]["created_candidate_count"], 1)
+            self.assertEqual(result["apply_summary"]["skipped_action_count"], 0)
+            candidate_action = next(action for action in result["actions"] if action["action_type"] == "consider-new-candidate")
+            self.assertTrue(candidate_action["apply_eligibility"]["eligible"])
+            self.assertEqual(candidate_action["apply_eligibility"]["candidate_creation_mode"], "seed")
+
+            created_candidate = result["apply_summary"]["created_candidates"][0]
+            candidate_path = repo_root / created_candidate["entry_path"]
+            candidate_payload = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+            self.assertEqual(candidate_payload["confidence"], 0.4)
+            self.assertIn("seed-candidate", candidate_payload["tags"])
+            self.assertEqual(candidate_payload["source"][0]["candidate_creation_mode"], "seed")
+            self.assertIn("retrieval seed", candidate_payload["use"]["guidance"])
+            self.assertEqual(
+                result["apply_summary"]["i18n_followup"]["entries"][0]["entry_id"],
+                candidate_payload["id"],
+            )
+            self.assertIn(
+                "title",
+                result["apply_summary"]["i18n_followup"]["entries"][0]["missing_i18n_fields"],
+            )
+
+            history_events = [
+                json.loads(line)
+                for line in history_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(history_events), 2)
+            self.assertEqual(history_events[-1]["event_type"], "candidate-created")
+
+    def test_apply_mode_skips_incomplete_single_observation_route_group(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
             history_path = repo_root / "kb" / "history" / "events.jsonl"
@@ -139,7 +259,7 @@ class ConsolidateApplyModeTests(unittest.TestCase):
 
             result = consolidate_history(
                 repo_root=repo_root,
-                run_id="apply-single",
+                run_id="apply-single-incomplete",
                 apply_mode="new-candidates",
             )
 
@@ -149,6 +269,7 @@ class ConsolidateApplyModeTests(unittest.TestCase):
             self.assertFalse((repo_root / "kb" / "candidates").exists())
             candidate_action = next(action for action in result["actions"] if action["action_type"] == "consider-new-candidate")
             self.assertFalse(candidate_action["apply_eligibility"]["eligible"])
+            self.assertIn("complete predictive evidence", candidate_action["apply_eligibility"]["reason"])
             self.assertIn("review-observation-evidence", [item["action_type"] for item in result["apply_summary"]["skipped_actions"]])
 
     def test_apply_mode_skips_broad_routes_even_when_grouped(self) -> None:

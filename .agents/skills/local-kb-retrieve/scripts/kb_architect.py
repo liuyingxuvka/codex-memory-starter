@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one bounded dream-maintenance pass for the local predictive KB."""
+"""Run one KB Architect mechanism-maintenance pass."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ SCRIPT_REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(SCRIPT_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_REPO_ROOT))
 
-from local_kb.dream import run_dream_maintenance
+from local_kb.architect import run_architect_maintenance
 from local_kb.store import resolve_repo_root
 
 
@@ -22,16 +22,18 @@ def main() -> None:
     parser.add_argument("--repo-root", default="auto")
     parser.add_argument("--run-id", default="")
     parser.add_argument("--max-events", type=int, default=0)
-    parser.add_argument("--sleep-cooldown-minutes", type=int, default=45)
+    parser.add_argument("--sleep-cooldown-minutes", type=int, default=60)
+    parser.add_argument("--dream-cooldown-minutes", type=int, default=20)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     repo_root = resolve_repo_root(args.repo_root)
-    result = run_dream_maintenance(
+    result = run_architect_maintenance(
         repo_root=repo_root,
         run_id=args.run_id or None,
         max_events=args.max_events or None,
         sleep_cooldown_minutes=max(0, args.sleep_cooldown_minutes),
+        dream_cooldown_minutes=max(0, args.dream_cooldown_minutes),
     )
 
     if args.json:
@@ -39,8 +41,8 @@ def main() -> None:
         return
 
     print(
-        f"Dream run {result['run_id']} finished with status={result['status']} "
-        f"and {result.get('created_candidate_count', 0)} created candidates."
+        f"Architect run {result['run_id']} finished with status={result['status']} "
+        f"and {result.get('proposal_count', 0)} mechanism proposals."
     )
     if result["status"] == "skipped":
         print(f"Reason: {result['reason']}")

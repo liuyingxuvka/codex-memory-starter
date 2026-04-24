@@ -27,6 +27,10 @@ APPLY_MODE_RELATED_CARDS = "related-cards"
 
 APPLY_MODE_CROSS_INDEX = "cross-index"
 
+APPLY_MODE_I18N_ZH_CN = "i18n-zh-CN"
+
+APPLY_MODE_SEMANTIC_REVIEW = "semantic-review"
+
 AUTO_CANDIDATE_SCOPE = "private"
 
 RELATED_CARD_MAX_COUNT = 3
@@ -56,6 +60,9 @@ ACTION_BASE_SCORES = {
     "review-cross-index": 3,
     "review-entry-update": 4,
     "review-related-cards": 3,
+    "review-i18n": 2,
+    "review-route-i18n": 2,
+    "semantic-review": 4,
     "review-observation-evidence": 2,
     "consider-new-candidate": 3,
     "review-taxonomy": 3,
@@ -91,8 +98,10 @@ def normalize_apply_mode(value: str | None) -> str:
         APPLY_MODE_NEW_CANDIDATES,
         APPLY_MODE_RELATED_CARDS,
         APPLY_MODE_CROSS_INDEX,
+        APPLY_MODE_I18N_ZH_CN.lower(),
+        APPLY_MODE_SEMANTIC_REVIEW,
     }:
-        return mode
+        return APPLY_MODE_I18N_ZH_CN if mode == APPLY_MODE_I18N_ZH_CN.lower() else mode
     raise ValueError(f"Unsupported consolidation apply mode: {value}")
 
 

@@ -1,10 +1,28 @@
 # Khaos Brain
 
-- Repository head (`main`) / 仓库主线（`main`）: `post-v0.1.13`
+- Repository head (`main`) / 仓库主线（`main`）: `v0.1.14`
 - Latest released version / 最新已发布版本: `v0.1.13`
 - Project name / 项目名称: `Khaos Brain`
 - 中文正文在前；后半部分是完整英文镜像。
 - Chinese comes first; the second half is a full English mirror.
+
+<p align="center">
+  <img src="assets/khaos-brain-icon.png" alt="Khaos Brain icon" width="136">
+</p>
+
+一个给 Codex 使用的本地“脑式”记忆系统：醒着工作，睡眠整理，做梦探索，再用桌面卡片界面把这些经验真正看见。
+
+A local brain-like memory system for Codex: work while awake, consolidate in sleep, explore in dreams, and inspect the result through a desktop card library.
+
+## 产品预览 / Product Preview
+
+下面两张图是当前桌面应用的英文 UI 预览，适合作为 GitHub 首页上的第一眼展示。
+
+The two screenshots below show the current desktop app in English UI, intended as the first-look preview on the GitHub page.
+
+| Desktop Library (English UI) | Card Detail (English UI) |
+| --- | --- |
+| ![Khaos Brain desktop overview in English](assets/screenshots/desktop-overview-en.png) | ![Khaos Brain desktop detail view in English](assets/screenshots/desktop-detail-en.png) |
 
 ## 中文
 
@@ -19,6 +37,7 @@
 - 记忆会在真正需要时被回忆出来
 - 真实证据会在 `Sleep` 中被整理
 - 邻近但还没被完全验证的可能，会在 `Dream` 中被小范围探索
+- 系统自己的运行机制会在 `Architect` 中被克制地维护
 
 所以它想做的，不只是“记住一条规则”，而是尽量模仿人类大脑处理经验的节律：
 
@@ -26,6 +45,7 @@
 - 做完后留下痕迹
 - 睡眠时整理
 - 做梦时联想
+- 下午审阅和优化维护机制
 - 下次遇到类似情境时更快想起什么更可能有效
 
 ### 为什么它像一个“脑”，而不是一个规则盒子
@@ -75,18 +95,20 @@
 - 修正前后的差异
 - 下一次应该如何操作
 
-### Sleep 和 Dream
+### Sleep、Dream 和 Architect
 
-这个仓库现在把维护拆成两条不同的“脑活动”节律：
+这个仓库现在把维护拆成三条不同的“脑活动”节律：
 
 - `KB Sleep`
-  整理真实发生过的任务证据，把 observation、history 和候选经验慢慢压成更稳的结构，默认每天 `12:00` 运行。
+  整理真实发生过的任务证据，把 observation、history 和候选经验慢慢压成更稳的结构；它可以通过 AI-authored semantic review 谨慎改写、升降级或废弃卡片，但一次最多自动修改 3 张 trusted 卡，默认每天 `12:00` 运行。
 - `KB Dream`
   对邻近但还没被充分验证的机会做一次有边界的小实验，帮助系统发现潜在新模式，默认每天 `13:00` 运行。
+- `KB Architect`
+  审阅 Sleep、Dream、安装器、自动化、回滚、验证和 proposal 队列这些运行机制本身；它只用 `Evidence / Impact / Safety` 三项判断，不维护卡片内容，默认每天 `14:00` 运行。
 
 它们不会并发混跑，而且都由安装器写入 Codex 的 automations。
 
-所以当你把仓库换到另一台机器时，只要重新让 Codex 安装一次，这套“醒着做事, 睡着整理, 做梦扩边”的维护机制就会一起恢复。
+所以当你把仓库换到另一台机器时，只要重新让 Codex 安装一次，这套“醒着做事, 睡着整理, 做梦扩边, 下午审阅机制”的维护节律就会一起恢复。
 
 ### 它和 Codex 的关系
 
@@ -104,7 +126,7 @@
 
 - Codex 可以在任务开始前先检索已有经验
 - Codex 可以在任务结束后把 observation 写回 history 或 candidates
-- Codex 可以按定时规则自动跑 sleep / dream maintenance
+- Codex 可以按定时规则自动跑 sleep / dream / architect maintenance
 - 用户不需要天天手工检查这个库有没有整理、有没有继续长经验
 
 ### 如果你只是想使用它
@@ -130,7 +152,7 @@ python scripts/install_codex_kb.py --check --json
 
 - 安装全局 preflight / launcher，让 Codex 知道在仓库任务前先检索这套 KB
 - 在 `$CODEX_HOME/AGENTS.md` 下写入或刷新 repo-managed 的全局默认约束 block，让 KB preflight / postflight 变成另一台机器也能继承的强默认规则层
-- 在 `$CODEX_HOME/automations/` 下刷新 repo-managed 的 `KB Sleep` 和 `KB Dream`
+- 在 `$CODEX_HOME/automations/` 下刷新 repo-managed 的 `KB Sleep`、`KB Dream` 和 `KB Architect`
 
 安装完成后，`python scripts/install_codex_kb.py --check --json` 会直接返回一个结构化 checklist。跨机器时，至少应看到这些项目全部通过：
 
@@ -142,9 +164,26 @@ python scripts/install_codex_kb.py --check --json
 - 这个 global AGENTS block 明确要求 non-trivial 任务做 explicit KB postflight check
 - `KB Sleep` automation 存在且配置正确
 - `KB Dream` automation 存在且配置正确
+- `KB Architect` automation 存在且配置正确
 - `strong_session_defaults` 为通过
 
 如果其中任一项失败，就不该把这台机器视为“已经完整装好”。
+
+### 本地桌面卡片查看器（实验性）
+
+如果你想人工浏览这套记忆库，可以打开本地桌面窗口：
+
+```bash
+python scripts/kb_desktop.py --repo-root . --language en
+```
+
+这个入口不启动浏览器，不需要本地 web 服务，也不依赖 Electron 或 Node。它使用 Python 标准库的桌面窗口读取同一套文件型 KB：左侧按路线索引导航，右侧以卡片封面的方式查看预测模型。`--language zh-CN` 可以显式切到中文显示层，`--language en` 则适合做英文预览和发布截图。
+
+无界面检查可以运行：
+
+```bash
+python scripts/kb_desktop.py --repo-root . --check
+```
 
 ### 公开仓库里放什么，不放什么
 
@@ -202,6 +241,7 @@ It is closer to an external brain wired onto Codex:
 - memory is recalled when it is actually needed
 - real evidence is consolidated during `Sleep`
 - nearby but not-yet-fully-validated possibilities are explored in a bounded way during `Dream`
+- the system's own operating mechanisms are maintained conservatively during `Architect`
 
 So its goal is not merely to “remember one rule.” It is trying to imitate the rhythm with which a human brain handles experience:
 
@@ -209,6 +249,7 @@ So its goal is not merely to “remember one rule.” It is trying to imitate th
 - leave traces after acting
 - consolidate during sleep
 - make associations during dreams
+- review and improve maintenance mechanisms in the afternoon
 - recall more quickly what is more likely to work the next time a similar situation appears
 
 ### Why It Feels Like A Brain Instead Of A Rule Box
@@ -258,18 +299,20 @@ So it preserves more than a conclusion. It also preserves:
 - the difference between the weaker path and the revised path
 - how the next run should operate
 
-### Sleep And Dream
+### Sleep, Dream, And Architect
 
-The repository now separates maintenance into two different kinds of “brain activity”:
+The repository now separates maintenance into three different kinds of “brain activity”:
 
 - `KB Sleep`
-  consolidates evidence from real tasks, gradually compressing observations, history, and candidate lessons into more stable structures, and runs by default every day at `12:00`
+  consolidates evidence from real tasks, gradually compressing observations, history, and candidate lessons into more stable structures; it can cautiously rewrite, promote, demote, or deprecate cards through AI-authored semantic review, with at most 3 trusted cards modified per run, and runs by default every day at `12:00`
 - `KB Dream`
   runs one bounded experiment on nearby but under-validated opportunities, helping the system discover possible new patterns, and runs by default every day at `13:00`
+- `KB Architect`
+  reviews the operating mechanisms around Sleep, Dream, installation, automation, rollback, validation, and the proposal queue; it uses only `Evidence / Impact / Safety`, does not maintain card content, and runs by default every day at `14:00`
 
-These lanes do not run concurrently, and both are provisioned into Codex automations by the installer.
+These lanes do not run concurrently, and all three are provisioned into Codex automations by the installer.
 
-So when the repository moves to another machine, asking Codex to install it again restores the same “work while awake, consolidate while asleep, expand while dreaming” maintenance rhythm there too.
+So when the repository moves to another machine, asking Codex to install it again restores the same “work while awake, consolidate while asleep, expand while dreaming, review the mechanisms afterward” maintenance rhythm there too.
 
 ### How It Relates To Codex
 
@@ -287,7 +330,7 @@ And because it depends on Codex, the system does not require a human to babysit 
 
 - Codex can retrieve prior experience before a task begins
 - Codex can write observations back to history or candidates after a task ends
-- Codex can run sleep / dream maintenance on a schedule
+- Codex can run sleep / dream / architect maintenance on a schedule
 - the user does not have to keep checking whether the library was consolidated or extended
 
 ### If You Just Want To Use It
@@ -313,7 +356,7 @@ The installer does three main things:
 
 - installs the global preflight / launcher so Codex knows to consult this KB before repository work
 - writes or refreshes a repo-managed defaults block under `$CODEX_HOME/AGENTS.md` so KB preflight / postflight become strong inherited defaults on another machine too
-- refreshes the repo-managed `KB Sleep` and `KB Dream` automations under `$CODEX_HOME/automations/`
+- refreshes the repo-managed `KB Sleep`, `KB Dream`, and `KB Architect` automations under `$CODEX_HOME/automations/`
 
 After installation, `python scripts/install_codex_kb.py --check --json` returns a structured checklist directly. On another machine, you should treat the install as complete only when these checks all pass:
 
@@ -325,9 +368,28 @@ After installation, `python scripts/install_codex_kb.py --check --json` returns 
 - that global AGENTS block requires an explicit KB postflight check for non-trivial work
 - `KB Sleep` exists and matches the repository automation spec
 - `KB Dream` exists and matches the repository automation spec
+- `KB Architect` exists and matches the repository automation spec
 - `strong_session_defaults` is true
 
 If any required checklist item fails, the machine should be treated as only partially installed.
+
+### Local Desktop Card Viewer (Experimental)
+
+To browse the memory library manually, open the local desktop window:
+
+```bash
+python scripts/kb_desktop.py --repo-root . --language en
+```
+
+This entry point does not start a browser, a local web server, Electron, or Node. It uses Python's standard desktop toolkit and reads the same file-based KB: route navigation stays on the left, and predictive model cards are shown as cover-like cards on the right. `--language zh-CN` switches explicitly to the Chinese display layer, while `--language en` is useful for English previews and release screenshots.
+
+The desktop viewer supports a local display-language setting. English card fields remain the canonical source; optional `i18n.zh-CN` fields are filled by sleep maintenance and used for Chinese display with English fallback.
+
+For a headless check:
+
+```bash
+python scripts/kb_desktop.py --repo-root . --check
+```
 
 ### What This Public Repository Includes And Excludes
 

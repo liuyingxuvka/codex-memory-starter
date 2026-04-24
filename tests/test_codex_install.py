@@ -13,6 +13,22 @@ def write_cmd(path: Path, body: str) -> None:
 
 
 class CodexInstallTests(unittest.TestCase):
+    def test_sleep_maintenance_prompt_requires_self_preflight_and_postflight(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        prompt_text = (
+            repo_root / ".agents" / "skills" / "local-kb-retrieve" / "MAINTENANCE_PROMPT.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("visible sleep execution plan", prompt_text)
+        self.assertIn("checkpoint", prompt_text)
+        self.assertIn("completed, skipped with reason, or blocked", prompt_text)
+        self.assertIn("try the supported repair path", prompt_text)
+        self.assertIn("sleep self-preflight", prompt_text)
+        self.assertIn("system/knowledge-library/maintenance", prompt_text)
+        self.assertIn("final sleep postflight check", prompt_text)
+        self.assertIn("structured observation", prompt_text)
+        self.assertIn("Do not rerun `kb_consolidate.py`", prompt_text)
+
     def test_install_writes_global_skill_launcher_and_manifest(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -38,11 +54,12 @@ class CodexInstallTests(unittest.TestCase):
             self.assertTrue((codex_home / "predictive-kb" / "install.json").exists())
             self.assertTrue((codex_home / "automations" / "kb-sleep" / "automation.toml").exists())
             self.assertTrue((codex_home / "automations" / "kb-dream" / "automation.toml").exists())
+            self.assertTrue((codex_home / "automations" / "kb-architect" / "automation.toml").exists())
             self.assertTrue(global_agents_path(codex_home).exists())
             self.assertTrue((shell_bin_dir / "git.cmd").exists())
             self.assertTrue((shell_bin_dir / "rg.exe").exists())
             self.assertEqual(payload["repo_root"], str(repo_root))
-            self.assertEqual(payload["automation_ids"], ["kb-sleep", "kb-dream"])
+            self.assertEqual(payload["automation_ids"], ["kb-sleep", "kb-dream", "kb-architect"])
             self.assertEqual(payload["shell_tools"]["shell_bin_dir"], str(shell_bin_dir))
             self.assertTrue(payload["shell_tools"]["git_shim_installed"])
             self.assertTrue(payload["shell_tools"]["rg_installed"])
@@ -71,6 +88,16 @@ class CodexInstallTests(unittest.TestCase):
             self.assertIn('rrule = "FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH,FR,SA;BYHOUR=12;BYMINUTE=0"', sleep_toml)
             self.assertIn('model = "gpt-5.4"', sleep_toml)
             self.assertIn('reasoning_effort = "xhigh"', sleep_toml)
+            self.assertIn("visible sleep execution plan", sleep_toml)
+            self.assertIn("checkpoint statuses", sleep_toml)
+            self.assertIn("every safe checkpoint", sleep_toml)
+            self.assertIn("supported low-risk repairs", sleep_toml)
+            self.assertIn("rerun the relevant validation", sleep_toml)
+            self.assertIn("sleep self-preflight", sleep_toml)
+            self.assertIn("system/knowledge-library/maintenance", sleep_toml)
+            self.assertIn("sleep postflight check", sleep_toml)
+            self.assertIn("structured maintenance observation", sleep_toml)
+            self.assertIn("recursively consolidating", sleep_toml)
             self.assertIn(str(repo_root).replace("\\", "\\\\"), sleep_toml)
 
             dream_toml = (codex_home / "automations" / "kb-dream" / "automation.toml").read_text(encoding="utf-8")
@@ -79,14 +106,46 @@ class CodexInstallTests(unittest.TestCase):
             self.assertIn('rrule = "FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH,FR,SA;BYHOUR=13;BYMINUTE=0"', dream_toml)
             self.assertIn('model = "gpt-5.4"', dream_toml)
             self.assertIn('reasoning_effort = "xhigh"', dream_toml)
+            self.assertIn("generated preflight", dream_toml)
+            self.assertIn("preflight entries retrieved", dream_toml)
+            self.assertIn("exactly one executable experiment", dream_toml)
+            self.assertIn("execution-plan checkpoint status", dream_toml)
+            self.assertIn("safety tier and rollback plan", dream_toml)
+            self.assertIn("external-system experiments proposal-only", dream_toml)
+            self.assertIn("run-level Dream-process observation", dream_toml)
+
+            architect_toml = (
+                codex_home / "automations" / "kb-architect" / "automation.toml"
+            ).read_text(encoding="utf-8")
+            self.assertIn('kind = "cron"', architect_toml)
+            self.assertIn('kb_architect.py', architect_toml)
+            self.assertIn('rrule = "FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH,FR,SA;BYHOUR=14;BYMINUTE=0"', architect_toml)
+            self.assertIn('model = "gpt-5.4"', architect_toml)
+            self.assertIn('reasoning_effort = "xhigh"', architect_toml)
+            self.assertIn("visible Architect execution plan", architect_toml)
+            self.assertIn("checkpoint statuses", architect_toml)
+            self.assertIn("Architect self-preflight", architect_toml)
+            self.assertIn("system/knowledge-library/maintenance", architect_toml)
+            self.assertIn("Evidence, Impact, and Safety", architect_toml)
+            self.assertIn("human-review status", architect_toml)
+            self.assertIn("long-observation items as watching", architect_toml)
+            self.assertIn("KB operating mechanisms rather than card content", architect_toml)
+            self.assertIn("do not rewrite trusted cards or promote candidates", architect_toml)
+            self.assertIn("validation bundle", architect_toml)
+            self.assertIn("postflight observation status", architect_toml)
 
             check = build_installation_check(repo_root=repo_root, codex_home=codex_home)
             self.assertTrue(check["ok"], check["issues"])
-            self.assertEqual([item["id"] for item in check["automation_checks"]], ["kb-sleep", "kb-dream"])
+            self.assertEqual(
+                [item["id"] for item in check["automation_checks"]],
+                ["kb-sleep", "kb-dream", "kb-architect"],
+            )
             checklist = {item["id"]: item for item in check["checklist"]}
             self.assertIn("codex_shell_tools", checklist)
             self.assertIn("strong_session_defaults", checklist)
+            self.assertIn("kb_architect_automation", checklist)
             self.assertTrue(checklist["codex_shell_tools"]["ok"])
+            self.assertTrue(checklist["kb_architect_automation"]["ok"])
             self.assertTrue(checklist["strong_session_defaults"]["ok"])
             self.assertTrue(checklist["global_agents_block"]["ok"])
             self.assertTrue(checklist["global_skill_postflight"]["ok"])

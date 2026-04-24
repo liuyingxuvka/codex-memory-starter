@@ -31,21 +31,56 @@ CODEX_SHELL_BIN_RELATIVE = Path("OpenAI") / "Codex" / "bin"
 SLEEP_AUTOMATION_PROMPT = (
     "Run the repository's local KB sleep-maintenance pass for this workspace. Use PROJECT_SPEC.md, "
     "docs/maintenance_runbook.md, and .agents/skills/local-kb-retrieve/MAINTENANCE_PROMPT.md as the "
-    "authoritative guides. Start in proposal mode, inspect taxonomy and route gaps, allow only the current "
-    "low-risk new-candidate, related-card, and cross-index apply paths when clearly eligible, keep trusted-card "
-    "or taxonomy rewrites proposal-only unless current tooling cleanly supports them, inspect rollback artifacts "
-    "when needed, and report the run id, reviewed observation counts, candidates created, maintenance decisions, "
-    "undeclared taxonomy gaps, hub-vs-overloaded card reviews, and the next proposal-only targets."
+    "authoritative guides. First write a visible sleep execution plan with checkpoint statuses, start with a "
+    "sleep self-preflight search against system/knowledge-library/maintenance, then run proposal mode, inspect "
+    "taxonomy and route gaps, review candidate route quality by preferring functional "
+    "domain paths over project-name roots, allow the current low-risk new-candidate, related-card, cross-index, "
+    "AI-authored semantic-review, and AI-authored i18n apply paths when clearly eligible, "
+    "limit semantic-review to at most 3 trusted-card modifications per run, run zh-CN display translation cleanup "
+    "after candidate/card creation or semantic card text changes, keep taxonomy rewrites proposal-only unless current "
+    "tooling cleanly supports them, inspect rollback artifacts when needed, continue "
+    "through every safe checkpoint instead of stopping after a short proposal, attempt supported low-risk repairs "
+    "and rerun the relevant validation when a command exposes a fixable issue, run a final sleep postflight check, "
+    "append one structured maintenance observation when the pass exposed a reusable lesson or process hazard, stop "
+    "after that final observation instead of recursively consolidating it, and report the run id, execution plan "
+    "status, self-preflight entries, reviewed observation counts, candidates created, route adjustments or concerns, "
+    "semantic-review decisions applied or skipped, translations updated or still missing, validations run, "
+    "repaired or proposal-only issues, maintenance decisions, "
+    "final postflight observation status, undeclared taxonomy gaps, hub-vs-overloaded card reviews, and the next "
+    "proposal-only targets."
 )
 
 DREAM_AUTOMATION_PROMPT = (
     "Run one bounded local KB dream-mode pass for this workspace. Use PROJECT_SPEC.md, docs/dream_runbook.md, "
     "and .agents/skills/local-kb-retrieve/DREAM_PROMPT.md as the authoritative guides. Run "
-    "`python .agents/skills/local-kb-retrieve/scripts/kb_dream.py --json --max-experiments 1 "
-    "--sleep-cooldown-minutes 45`, inspect the generated plan, opportunity, experiment, and report artifacts, "
-    "keep write-back history-only or candidate-only, avoid trusted-card or taxonomy rewrites, and report the "
-    "run id, selected experiment, created candidates if any, history events written, and anything still needing "
-    "live-task confirmation."
+    "`python .agents/skills/local-kb-retrieve/scripts/kb_dream.py --json --sleep-cooldown-minutes 45`, "
+    "inspect the generated preflight, plan, opportunity, experiment, execution-plan, "
+    "and report artifacts, require exactly one executable experiment with experiment design, validation plan, "
+    "safety tier, rollback plan, and explicit success/failure criteria before execution, keep write-back "
+    "history-only or candidate-only, keep external-system experiments proposal-only, avoid trusted-card or taxonomy "
+    "rewrites, and report the run id, preflight entries retrieved, selected experiment, execution-plan checkpoint "
+    "status, safety tier and rollback plan, created candidates if any, history events written, run-level "
+    "Dream-process observation, and anything still needing live-task confirmation."
+)
+
+ARCHITECT_AUTOMATION_PROMPT = (
+    "Run one KB Architect mechanism-maintenance pass for this workspace. Use PROJECT_SPEC.md, "
+    "docs/architecture_runbook.md, and .agents/skills/local-kb-retrieve/ARCHITECT_PROMPT.md as the "
+    "authoritative guides. Before the first stateful command, write a visible Architect execution plan with "
+    "checkpoint statuses and include every required checkpoint; do not skip any checkpoint silently. Start with "
+    "Architect self-preflight against system/knowledge-library/maintenance, then run "
+    "`python .agents/skills/local-kb-retrieve/scripts/kb_architect.py --json --sleep-cooldown-minutes 60 "
+    "--dream-cooldown-minutes 20`, inspect the generated plan, preflight, signals, proposals, decisions, "
+    "execution-plan, report, and proposal_queue artifacts, use only Evidence, Impact, and Safety for proposal "
+    "review, keep statuses limited to new, watching, ready-for-patch, ready-for-apply, applied, rejected, and "
+    "superseded, do not use a human-review status, keep long-observation items as watching, keep the scope to "
+    "KB operating mechanisms rather than card content, do not rewrite trusted cards or promote candidates, apply "
+    "only high-evidence high-safety mechanism changes inside prompt, runbook, validation, or proposal-queue "
+    "maintenance with an immediate validation bundle, generate patch plans for medium-safety mechanism changes, confirm the "
+    "runner's KB postflight observation or append one structured Architect observation if a new mechanism lesson "
+    "was exposed, and report the run id, checkpoint status for every plan item, preflight entries retrieved, "
+    "proposal counts by status, ready-for-apply and ready-for-patch items, changes applied, validation bundle run, "
+    "postflight observation status, and watching items left for long observation."
 )
 
 REPO_AUTOMATION_SPECS = (
@@ -67,6 +102,17 @@ REPO_AUTOMATION_SPECS = (
         "prompt": DREAM_AUTOMATION_PROMPT,
         "status": "ACTIVE",
         "rrule": "FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH,FR,SA;BYHOUR=13;BYMINUTE=0",
+        "model": "gpt-5.4",
+        "reasoning_effort": "xhigh",
+        "execution_environment": "local",
+    },
+    {
+        "id": "kb-architect",
+        "name": "KB Architect",
+        "kind": "cron",
+        "prompt": ARCHITECT_AUTOMATION_PROMPT,
+        "status": "ACTIVE",
+        "rrule": "FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH,FR,SA;BYHOUR=14;BYMINUTE=0",
         "model": "gpt-5.4",
         "reasoning_effort": "xhigh",
         "execution_environment": "local",
@@ -680,10 +726,61 @@ def build_installation_check(
                     )
             if expected["id"] == "kb-dream" and "kb_dream.py" not in prompt_text:
                 issues_for_automation.append("Automation kb-dream prompt must reference kb_dream.py.")
+            if expected["id"] == "kb-dream":
+                for marker in (
+                    "generated preflight",
+                    "preflight entries retrieved",
+                    "exactly one executable experiment",
+                    "execution-plan checkpoint status",
+                    "safety tier and rollback plan",
+                    "external-system experiments proposal-only",
+                    "run-level Dream-process observation",
+                ):
+                    if marker not in prompt_text:
+                        issues_for_automation.append(
+                            f"Automation kb-dream prompt is missing dream lifecycle marker: {marker}"
+                        )
             if expected["id"] == "kb-sleep" and "MAINTENANCE_PROMPT.md" not in prompt_text:
                 issues_for_automation.append(
                     "Automation kb-sleep prompt must reference MAINTENANCE_PROMPT.md."
                 )
+            if expected["id"] == "kb-sleep":
+                for marker in (
+                    "visible sleep execution plan",
+                    "checkpoint statuses",
+                    "sleep self-preflight",
+                    "system/knowledge-library/maintenance",
+                    "every safe checkpoint",
+                    "supported low-risk repairs",
+                    "rerun the relevant validation",
+                    "sleep postflight check",
+                    "structured maintenance observation",
+                    "recursively consolidating",
+                ):
+                    if marker not in prompt_text:
+                        issues_for_automation.append(
+                            f"Automation kb-sleep prompt is missing sleep lifecycle marker: {marker}"
+                        )
+            if expected["id"] == "kb-architect" and "kb_architect.py" not in prompt_text:
+                issues_for_automation.append("Automation kb-architect prompt must reference kb_architect.py.")
+            if expected["id"] == "kb-architect":
+                for marker in (
+                    "visible Architect execution plan",
+                    "checkpoint statuses",
+                    "Architect self-preflight",
+                    "system/knowledge-library/maintenance",
+                    "Evidence, Impact, and Safety",
+                    "human-review status",
+                    "long-observation items as watching",
+                    "KB operating mechanisms rather than card content",
+                    "do not rewrite trusted cards or promote candidates",
+                    "validation bundle",
+                    "postflight observation status",
+                ):
+                    if marker not in prompt_text:
+                        issues_for_automation.append(
+                            f"Automation kb-architect prompt is missing architect lifecycle marker: {marker}"
+                        )
         if issues_for_automation:
             issues.extend(issues_for_automation)
         automation_checks.append(
@@ -697,7 +794,7 @@ def build_installation_check(
 
     if not managed_automations:
         warnings.append(
-            "Install manifest does not record the repository-managed sleep/dream automations. "
+            "Install manifest does not record the repository-managed sleep/dream/architect automations. "
             "Re-run the installer to refresh automation setup."
         )
 
@@ -719,6 +816,7 @@ def build_installation_check(
     global_agents_postflight = bool(global_agents_text and "explicit KB postflight check" in global_agents_text)
     kb_sleep_ok = not automation_issue_map.get("kb-sleep")
     kb_dream_ok = not automation_issue_map.get("kb-dream")
+    kb_architect_ok = not automation_issue_map.get("kb-architect")
     codex_shell_tools_ok = git_shim_path.exists() and rg_path.exists()
     strong_defaults_ok = (
         global_skill_implicit
@@ -781,6 +879,12 @@ def build_installation_check(
             "KB Dream automation is installed and matches the repository spec",
             kb_dream_ok,
             f"path={automation_toml_path('kb-dream', home)}",
+        ),
+        _checklist_item(
+            "kb_architect_automation",
+            "KB Architect automation is installed and matches the repository spec",
+            kb_architect_ok,
+            f"path={automation_toml_path('kb-architect', home)}",
         ),
         _checklist_item(
             "codex_shell_tools",

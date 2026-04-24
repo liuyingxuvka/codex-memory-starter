@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from local_kb.common import normalize_string_list, parse_route_segments, slugify
 from local_kb.consolidate_events import (
     APPLY_MODE_CROSS_INDEX,
+    APPLY_MODE_I18N_ZH_CN,
     APPLY_MODE_NEW_CANDIDATES,
     APPLY_MODE_NONE,
     APPLY_MODE_RELATED_CARDS,
+    APPLY_MODE_SEMANTIC_REVIEW,
     AUTO_CANDIDATE_SCOPE,
     CONSOLIDATION_NOTES,
     SCHEMA_VERSION,
@@ -19,6 +22,7 @@ from local_kb.consolidate_events import (
     collect_task_summaries,
     events_by_id,
     group_candidate_actions,
+    has_predictive_evidence,
     history_events_path,
     load_history_events,
     normalize_apply_mode,
@@ -36,6 +40,23 @@ from local_kb.consolidate_suggestions import (
     describe_apply_eligibility,
 )
 from local_kb.history import build_history_event, record_history_event
+from local_kb.i18n import ZH_CN, merge_i18n_payload, missing_i18n_fields
+from local_kb.i18n_maintenance import build_i18n_actions, load_i18n_plan, translation_for_entry
+from local_kb.semantic_review import (
+    SEMANTIC_REVIEW_AUTO_APPLY_DECISIONS,
+    is_semantic_review_action,
+    is_trusted_card,
+    normalize_semantic_decision,
+    normalize_semantic_evidence_event_ids,
+    normalize_semantic_review_plan,
+    normalize_semantic_risk,
+    semantic_review_changed_fields,
+    semantic_review_confidence,
+    semantic_review_decisions_by_action_key,
+    semantic_review_entry_storage_path,
+    semantic_review_needs_i18n_followup,
+    semantic_review_updated_fields,
+)
 from local_kb.store import candidate_dir, write_yaml_file
 
 
@@ -143,6 +164,10 @@ def build_action_stub_payload(
         payload["related_card_suggestion"] = dict(action["related_card_suggestion"])
     if action.get("split_review_suggestion"):
         payload["split_review_suggestion"] = dict(action["split_review_suggestion"])
+    if action.get("i18n_suggestion"):
+        payload["i18n_suggestion"] = dict(action["i18n_suggestion"])
+    if action.get("semantic_review_suggestion"):
+        payload["semantic_review_suggestion"] = dict(action["semantic_review_suggestion"])
     return payload
 
 
@@ -246,7 +271,12 @@ def build_auto_candidate_entry(
         if isinstance(item, dict)
         and (str(item.get("when", "") or "").strip() or str(item.get("result", "") or "").strip())
     ]
+    event_count = int(action["event_count"])
+    complete_predictive_count = sum(1 for event in supporting_events if has_predictive_evidence(event))
+    seed_candidate = event_count == 1 and complete_predictive_count >= 1
     tags = sorted(set(route_segments + ["auto-generated", "consolidation"]))
+    if seed_candidate:
+        tags = sorted(set(tags + ["seed-candidate", "low-confidence"]))
     if alternatives:
         tags = sorted(set(tags + ["contrastive-evidence"]))
     return {
@@ -304,13 +334,15 @@ def build_auto_candidate_entry(
                 or ""
             ).strip()
         },
-        "confidence": round(min(0.75, 0.45 + (0.05 * int(action["event_count"]))), 2),
+        "confidence": 0.4 if seed_candidate else round(min(0.75, 0.45 + (0.05 * event_count)), 2),
         "source": [
             {
                 "origin": "auto consolidation apply",
                 "date": updated_at,
                 "run_id": run_id,
                 "route": route_ref,
+                "candidate_creation_mode": "seed" if seed_candidate else "grouped",
+                "complete_predictive_event_count": complete_predictive_count,
                 "event_ids": list(action["event_ids"]),
             }
         ],
@@ -363,10 +395,27 @@ def apply_new_candidate_actions(
     indexed_events = events_by_id(events)
     created_candidates: list[dict[str, Any]] = []
     skipped_actions: list[dict[str, Any]] = []
+    i18n_followup_entries: list[dict[str, Any]] = []
 
     for action in actions:
         supporting_events = supporting_events_for_action(action, indexed_events)
         eligibility = action.get("apply_eligibility") or describe_apply_eligibility(action, supporting_events)
+        if action.get("action_type") != "consider-new-candidate":
+            supported_mode = str(eligibility.get("supported_mode", "") or "")
+            mode_label = supported_mode or "another"
+            skipped_actions.append(
+                {
+                    "action_key": action["action_key"],
+                    "action_type": action["action_type"],
+                    "target": dict(action["target"]),
+                    "reason": (
+                        f"Action belongs to {mode_label} apply mode; "
+                        "new-candidates apply only creates route candidate scaffolds."
+                    ).strip(),
+                    "event_ids": list(action["event_ids"]),
+                }
+            )
+            continue
         if not eligibility.get("eligible", False):
             skipped_actions.append(
                 {
@@ -400,6 +449,15 @@ def apply_new_candidate_actions(
             continue
 
         write_yaml_file(target_path, entry)
+        missing_i18n = missing_i18n_fields(entry, ZH_CN)
+        if missing_i18n:
+            i18n_followup_entries.append(
+                {
+                    "entry_id": entry["id"],
+                    "entry_path": relative_target_path,
+                    "missing_i18n_fields": missing_i18n,
+                }
+            )
         history_event = build_history_event(
             "candidate-created",
             source={
@@ -431,9 +489,21 @@ def apply_new_candidate_actions(
                 "entry_id": entry["id"],
                 "entry_path": relative_target_path,
                 "event_ids": list(action["event_ids"]),
+                "missing_i18n_fields": missing_i18n,
             }
         )
 
+    i18n_followup = {
+        "required": bool(i18n_followup_entries),
+        "language": ZH_CN,
+        "missing_entry_count": len(i18n_followup_entries),
+        "entries": i18n_followup_entries,
+        "recommended_apply_mode": APPLY_MODE_I18N_ZH_CN,
+        "reason": (
+            "New candidate entries keep English canonical fields only; author a zh-CN translation plan "
+            "and run i18n apply after candidate creation."
+        ),
+    }
     return {
         "apply_mode": APPLY_MODE_NEW_CANDIDATES,
         "created_candidate_count": len(created_candidates),
@@ -442,6 +512,7 @@ def apply_new_candidate_actions(
         "created_candidates": created_candidates,
         "updated_entries": [],
         "skipped_actions": skipped_actions,
+        "i18n_followup": i18n_followup,
     }
 
 
@@ -722,6 +793,571 @@ def apply_cross_index_actions(
     }
 
 
+def apply_i18n_actions(
+    repo_root: Path,
+    actions: list[dict[str, Any]],
+    run_id: str,
+    generated_at: str,
+    i18n_plan_path: Path | None,
+) -> dict[str, Any]:
+    entry_lookup = build_entry_lookup(repo_root)
+    entry_path_lookup = build_entry_path_lookup(repo_root)
+    plan = load_i18n_plan(i18n_plan_path)
+    updated_entries: list[dict[str, Any]] = []
+    skipped_actions: list[dict[str, Any]] = []
+    updated_at = generated_at[:10]
+    plan_language = str(plan.get("language") or "")
+    if i18n_plan_path:
+        try:
+            relative_plan_path = relative_repo_path(repo_root, i18n_plan_path)
+        except ValueError:
+            relative_plan_path = str(i18n_plan_path)
+    else:
+        relative_plan_path = ""
+
+    for action in actions:
+        if action.get("action_type") != "review-i18n":
+            if action.get("action_type") == "review-route-i18n":
+                skipped_actions.append(
+                    _build_skipped_apply_action(
+                        action,
+                        (
+                            "Route display labels require an AI-authored code patch; "
+                            "i18n-zh-CN apply only updates entry text translations."
+                        ),
+                    )
+                )
+                continue
+            skipped_actions.append(
+                _build_skipped_apply_action(
+                    action,
+                    "Apply mode i18n-zh-CN only updates i18n review actions.",
+                )
+            )
+            continue
+
+        if plan_language != ZH_CN:
+            skipped_actions.append(_build_skipped_apply_action(action, "i18n plan language must be zh-CN."))
+            continue
+
+        entry_id = str(action.get("target", {}).get("ref", "") or "").strip()
+        if entry_id not in entry_lookup or entry_id not in entry_path_lookup:
+            skipped_actions.append(_build_skipped_apply_action(action, f"Entry not found for i18n update: {entry_id}"))
+            continue
+
+        translation_payload = translation_for_entry(plan, entry_id)
+        if not translation_payload:
+            skipped_actions.append(
+                _build_skipped_apply_action(
+                    action,
+                    "No AI-authored translation payload was provided for this entry.",
+                )
+            )
+            continue
+
+        current_payload = dict(entry_lookup[entry_id])
+        previous_missing_fields = missing_i18n_fields(current_payload, ZH_CN)
+        merged_payload = merge_i18n_payload(current_payload, ZH_CN, translation_payload)
+        new_missing_fields = missing_i18n_fields(merged_payload, ZH_CN)
+        if merged_payload.get("i18n") == current_payload.get("i18n"):
+            skipped_actions.append(_build_skipped_apply_action(action, "i18n payload already matches the current entry."))
+            continue
+
+        merged_payload["updated_at"] = updated_at
+        target_path = entry_path_lookup[entry_id]
+        relative_target_path = relative_repo_path(repo_root, target_path)
+        write_yaml_file(target_path, merged_payload)
+
+        history_event = build_history_event(
+            "i18n-updated",
+            source={
+                "kind": "consolidation-apply",
+                "agent": "kb-consolidate",
+                "run_id": run_id,
+            },
+            target={
+                "kind": "entry",
+                "entry_id": entry_id,
+                "entry_path": relative_target_path,
+                "scope": str(merged_payload.get("scope", "") or ""),
+                "domain_path": parse_route_segments(merged_payload.get("domain_path", [])),
+            },
+            rationale=f"Applied AI-authored zh-CN i18n plan for {action['action_key']}",
+            context={
+                "action_key": action["action_key"],
+                "auto_apply_mode": APPLY_MODE_I18N_ZH_CN,
+                "language": ZH_CN,
+                "i18n_plan_path": relative_plan_path,
+                "previous_missing_i18n_fields": previous_missing_fields,
+                "remaining_missing_i18n_fields": new_missing_fields,
+            },
+        )
+        record_history_event(repo_root, history_event)
+        updated_entries.append(
+            {
+                "action_key": action["action_key"],
+                "entry_id": entry_id,
+                "entry_path": relative_target_path,
+                "language": ZH_CN,
+                "previous_missing_i18n_fields": previous_missing_fields,
+                "remaining_missing_i18n_fields": new_missing_fields,
+            }
+        )
+
+    return {
+        "apply_mode": APPLY_MODE_I18N_ZH_CN,
+        "created_candidate_count": 0,
+        "updated_entry_count": len(updated_entries),
+        "skipped_action_count": len(skipped_actions),
+        "created_candidates": [],
+        "updated_entries": updated_entries,
+        "skipped_actions": skipped_actions,
+        "i18n_plan_path": relative_plan_path,
+    }
+
+
+def _semantic_review_plan_path_label(repo_root: Path, semantic_review_plan_path: Path | None) -> str:
+    if semantic_review_plan_path is None:
+        return ""
+    try:
+        return relative_repo_path(repo_root, semantic_review_plan_path)
+    except ValueError:
+        return str(semantic_review_plan_path)
+
+
+def _semantic_review_skip(action: dict[str, Any], reason: str) -> dict[str, Any]:
+    return _build_skipped_apply_action(action, reason)
+
+
+def _semantic_review_requires_trusted_budget(
+    current_payload: dict[str, Any],
+    decision_name: str,
+    updated_payload: dict[str, Any] | None = None,
+) -> bool:
+    if is_trusted_card(current_payload):
+        return True
+    if decision_name in {"promote", "deprecate", "demote"}:
+        return True
+    if updated_payload is not None and is_trusted_card(updated_payload):
+        return True
+    return False
+
+
+def _semantic_review_append_source(
+    payload: dict[str, Any],
+    *,
+    run_id: str,
+    updated_at: str,
+    action_key: str,
+    decision_name: str,
+    evidence_event_ids: list[str],
+) -> None:
+    source = payload.get("source", [])
+    if not isinstance(source, list):
+        source = [source] if source else []
+    source.append(
+        {
+            "origin": "semantic review apply",
+            "date": updated_at,
+            "run_id": run_id,
+            "action_key": action_key,
+            "decision": decision_name,
+            "event_ids": evidence_event_ids,
+        }
+    )
+    payload["source"] = source
+
+
+def _semantic_review_apply_updates(
+    current_payload: dict[str, Any],
+    updates: dict[str, Any],
+    decision_name: str,
+) -> tuple[dict[str, Any] | None, str]:
+    payload = deepcopy(current_payload)
+    if decision_name == "adjust-confidence":
+        confidence = semantic_review_confidence(updates.get("confidence"))
+        if confidence is None:
+            return None, "adjust-confidence requires updated_fields.confidence between 0 and 1."
+        payload["confidence"] = confidence
+    elif decision_name == "deprecate":
+        payload["status"] = "deprecated"
+        if "confidence" in updates:
+            confidence = semantic_review_confidence(updates.get("confidence"))
+            if confidence is None:
+                return None, "deprecate confidence must be between 0 and 1 when provided."
+            payload["confidence"] = confidence
+    else:
+        for field, value in updates.items():
+            if field == "confidence":
+                confidence = semantic_review_confidence(value)
+                if confidence is None:
+                    return None, "confidence must be between 0 and 1."
+                payload[field] = confidence
+                continue
+            if field == "domain_path":
+                payload[field] = parse_route_segments(value)
+                continue
+            if field in {"cross_index", "related_cards", "tags", "trigger_keywords"}:
+                payload[field] = _normalize_ordered_text_list(value)
+                continue
+            payload[field] = value
+    return payload, ""
+
+
+def _semantic_review_target_path_for_decision(
+    repo_root: Path,
+    current_path: Path,
+    payload: dict[str, Any],
+    decision_name: str,
+) -> Path:
+    if decision_name == "promote":
+        return semantic_review_entry_storage_path(repo_root, payload)
+    if decision_name == "demote":
+        return semantic_review_entry_storage_path(repo_root, payload, force_candidates=True)
+    return current_path
+
+
+def _semantic_review_validate_decision(
+    action: dict[str, Any],
+    decision: dict[str, Any],
+    current_payload: dict[str, Any],
+) -> tuple[str, list[str], str, str]:
+    decision_name = normalize_semantic_decision(decision.get("decision"))
+    if not decision_name:
+        return "", [], "", "Unsupported or missing semantic review decision."
+    if decision_name not in SEMANTIC_REVIEW_AUTO_APPLY_DECISIONS:
+        return decision_name, [], "", f"Decision {decision_name} is proposal-only in the current apply tool."
+    if not bool(decision.get("apply", False)):
+        return decision_name, [], "", "Semantic review decisions must set apply: true before they are recorded or applied."
+
+    entry_id = str(action.get("target", {}).get("ref", "") or "").strip()
+    decision_entry_id = str(decision.get("entry_id", "") or "").strip()
+    if decision_entry_id and decision_entry_id != entry_id:
+        return decision_name, [], "", f"Decision entry_id {decision_entry_id} does not match action target {entry_id}."
+
+    evidence_event_ids = normalize_semantic_evidence_event_ids(decision)
+    action_event_ids = {str(event_id).strip() for event_id in action.get("event_ids", []) if str(event_id).strip()}
+    if not evidence_event_ids:
+        return decision_name, [], "", "Semantic review decisions require evidence_event_ids."
+    if action_event_ids and not set(evidence_event_ids).issubset(action_event_ids):
+        return decision_name, evidence_event_ids, "", "Semantic review evidence_event_ids must come from the current action."
+
+    rationale = str(decision.get("rationale", "") or "").strip()
+    expected_effect = str(decision.get("expected_retrieval_effect", "") or "").strip()
+    rollback_note = str(decision.get("rollback_note", "") or "").strip()
+    if not rationale:
+        return decision_name, evidence_event_ids, "", "Semantic review decisions require rationale."
+    if decision_name != "keep" and not expected_effect:
+        return decision_name, evidence_event_ids, "", "Semantic review file changes require expected_retrieval_effect."
+    if decision_name != "keep" and not rollback_note:
+        return decision_name, evidence_event_ids, "", "Semantic review file changes require rollback_note."
+
+    risk = normalize_semantic_risk(
+        decision.get("risk"),
+        trusted_surface=is_trusted_card(current_payload),
+        decision=decision_name,
+    )
+    return decision_name, evidence_event_ids, risk, ""
+
+
+def _record_semantic_review_event(
+    repo_root: Path,
+    *,
+    run_id: str,
+    action: dict[str, Any],
+    decision: dict[str, Any],
+    decision_name: str,
+    risk: str,
+    evidence_event_ids: list[str],
+    current_payload: dict[str, Any],
+    updated_payload: dict[str, Any],
+    current_path: Path,
+    updated_path: Path,
+    changed_fields: list[str],
+    plan_path_label: str,
+    trusted_card_limit: int,
+    applied_file_change: bool,
+) -> None:
+    entry_id = str(updated_payload.get("id") or current_payload.get("id") or action.get("target", {}).get("ref") or "")
+    history_event = build_history_event(
+        "semantic-reviewed",
+        source={
+            "kind": "consolidation-apply",
+            "agent": "kb-consolidate",
+            "run_id": run_id,
+        },
+        target={
+            "kind": "entry",
+            "entry_id": entry_id,
+            "entry_path": relative_repo_path(repo_root, updated_path),
+            "scope": str(updated_payload.get("scope", "") or ""),
+            "domain_path": parse_route_segments(updated_payload.get("domain_path", [])),
+        },
+        rationale=str(decision.get("rationale", "") or "").strip(),
+        context={
+            "action_key": action["action_key"],
+            "resolved_action_key": action["action_key"],
+            "resolved_event_ids": evidence_event_ids,
+            "auto_apply_mode": APPLY_MODE_SEMANTIC_REVIEW,
+            "semantic_review_plan_path": plan_path_label,
+            "decision": decision_name,
+            "risk": risk,
+            "applied_file_change": applied_file_change,
+            "changed_fields": changed_fields,
+            "previous_entry_path": relative_repo_path(repo_root, current_path),
+            "updated_entry_path": relative_repo_path(repo_root, updated_path),
+            "previous_status": str(current_payload.get("status", "") or ""),
+            "updated_status": str(updated_payload.get("status", "") or ""),
+            "previous_confidence": current_payload.get("confidence"),
+            "updated_confidence": updated_payload.get("confidence"),
+            "expected_retrieval_effect": str(decision.get("expected_retrieval_effect", "") or "").strip(),
+            "rollback_note": str(decision.get("rollback_note", "") or "").strip(),
+            "trusted_card_limit": trusted_card_limit,
+        },
+    )
+    record_history_event(repo_root, history_event)
+
+
+def apply_semantic_review_actions(
+    repo_root: Path,
+    actions: list[dict[str, Any]],
+    run_id: str,
+    generated_at: str,
+    semantic_review_plan_path: Path | None,
+) -> dict[str, Any]:
+    entry_lookup = build_entry_lookup(repo_root)
+    entry_path_lookup = build_entry_path_lookup(repo_root)
+    plan = normalize_semantic_review_plan(semantic_review_plan_path)
+    decisions_by_action_key = semantic_review_decisions_by_action_key(plan)
+    plan_path_label = _semantic_review_plan_path_label(repo_root, semantic_review_plan_path)
+    trusted_card_limit = int(plan.get("trusted_card_limit", 3) or 0)
+    trusted_entry_ids_modified: set[str] = set()
+    reviewed_entries: list[dict[str, Any]] = []
+    updated_entries: list[dict[str, Any]] = []
+    skipped_actions: list[dict[str, Any]] = []
+    i18n_followup_entries: list[dict[str, Any]] = []
+    updated_at = generated_at[:10]
+
+    for action in actions:
+        if not is_semantic_review_action(action):
+            skipped_actions.append(
+                _semantic_review_skip(
+                    action,
+                    "Apply mode semantic-review only processes entry semantic review actions.",
+                )
+            )
+            continue
+
+        action_key = str(action.get("action_key", "") or "").strip()
+        decision = decisions_by_action_key.get(action_key)
+        if not decision:
+            skipped_actions.append(
+                _semantic_review_skip(
+                    action,
+                    "No AI-authored semantic review decision was provided for this action.",
+                )
+            )
+            continue
+
+        entry_id = str(action.get("target", {}).get("ref", "") or "").strip()
+        if entry_id not in entry_lookup or entry_id not in entry_path_lookup:
+            skipped_actions.append(_semantic_review_skip(action, f"Entry not found for semantic review: {entry_id}"))
+            continue
+
+        current_payload = deepcopy(entry_lookup[entry_id])
+        current_path = entry_path_lookup[entry_id]
+        decision_name, evidence_event_ids, risk, validation_error = _semantic_review_validate_decision(
+            action=action,
+            decision=decision,
+            current_payload=current_payload,
+        )
+        if validation_error:
+            skipped_actions.append(_semantic_review_skip(action, validation_error))
+            continue
+
+        if decision_name == "keep":
+            _record_semantic_review_event(
+                repo_root,
+                run_id=run_id,
+                action=action,
+                decision=decision,
+                decision_name=decision_name,
+                risk=risk,
+                evidence_event_ids=evidence_event_ids,
+                current_payload=current_payload,
+                updated_payload=current_payload,
+                current_path=current_path,
+                updated_path=current_path,
+                changed_fields=[],
+                plan_path_label=plan_path_label,
+                trusted_card_limit=trusted_card_limit,
+                applied_file_change=False,
+            )
+            reviewed_entries.append(
+                {
+                    "action_key": action_key,
+                    "entry_id": entry_id,
+                    "entry_path": relative_repo_path(repo_root, current_path),
+                    "decision": decision_name,
+                    "risk": risk,
+                    "event_ids": evidence_event_ids,
+                }
+            )
+            continue
+
+        updates, disallowed_fields = semantic_review_updated_fields(decision)
+        if disallowed_fields:
+            skipped_actions.append(
+                _semantic_review_skip(
+                    action,
+                    f"Semantic review updated_fields contains unsupported fields: {', '.join(disallowed_fields)}",
+                )
+            )
+            continue
+
+        updated_payload, update_error = _semantic_review_apply_updates(current_payload, updates, decision_name)
+        if update_error or updated_payload is None:
+            skipped_actions.append(_semantic_review_skip(action, update_error))
+            continue
+
+        if decision_name == "promote":
+            target_scope = str(decision.get("target_scope") or updates.get("scope") or current_payload.get("scope") or "private").strip().lower()
+            if target_scope not in {"public", "private"}:
+                skipped_actions.append(_semantic_review_skip(action, "promote requires target_scope public or private."))
+                continue
+            updated_payload["scope"] = target_scope
+            updated_payload["status"] = "trusted"
+        elif decision_name == "demote":
+            target_scope = str(decision.get("target_scope") or current_payload.get("scope") or "private").strip().lower()
+            if target_scope not in {"public", "private"}:
+                skipped_actions.append(_semantic_review_skip(action, "demote target_scope must be public or private when provided."))
+                continue
+            updated_payload["scope"] = target_scope
+            updated_payload["status"] = "candidate"
+
+        changed_fields = semantic_review_changed_fields(current_payload, updated_payload)
+        if not changed_fields and decision_name not in {"promote", "demote"}:
+            skipped_actions.append(_semantic_review_skip(action, "Semantic review decision produced no entry change."))
+            continue
+
+        trusted_surface_change = _semantic_review_requires_trusted_budget(
+            current_payload,
+            decision_name,
+            updated_payload,
+        )
+        if trusted_surface_change and entry_id not in trusted_entry_ids_modified:
+            if len(trusted_entry_ids_modified) >= trusted_card_limit:
+                skipped_actions.append(
+                    _semantic_review_skip(
+                        action,
+                        f"Trusted-card semantic review budget exhausted for this run (limit={trusted_card_limit}).",
+                    )
+                )
+                continue
+            trusted_entry_ids_modified.add(entry_id)
+
+        updated_payload["updated_at"] = updated_at
+        _semantic_review_append_source(
+            updated_payload,
+            run_id=run_id,
+            updated_at=updated_at,
+            action_key=action_key,
+            decision_name=decision_name,
+            evidence_event_ids=evidence_event_ids,
+        )
+        target_path = _semantic_review_target_path_for_decision(
+            repo_root,
+            current_path,
+            updated_payload,
+            decision_name,
+        )
+        if target_path != current_path and target_path.exists():
+            skipped_actions.append(
+                _semantic_review_skip(
+                    action,
+                    f"Semantic review target file already exists: {relative_repo_path(repo_root, target_path)}",
+                )
+            )
+            continue
+
+        write_yaml_file(target_path, updated_payload)
+        if target_path != current_path and current_path.exists():
+            current_path.unlink()
+
+        entry_lookup[entry_id] = updated_payload
+        entry_path_lookup[entry_id] = target_path
+        changed_fields = semantic_review_changed_fields(current_payload, updated_payload)
+        missing_i18n = missing_i18n_fields(updated_payload, ZH_CN)
+        if semantic_review_needs_i18n_followup(changed_fields, updated_payload) or missing_i18n:
+            i18n_followup_entries.append(
+                {
+                    "entry_id": entry_id,
+                    "entry_path": relative_repo_path(repo_root, target_path),
+                    "changed_fields": changed_fields,
+                    "missing_i18n_fields": missing_i18n,
+                }
+            )
+
+        _record_semantic_review_event(
+            repo_root,
+            run_id=run_id,
+            action=action,
+            decision=decision,
+            decision_name=decision_name,
+            risk=risk,
+            evidence_event_ids=evidence_event_ids,
+            current_payload=current_payload,
+            updated_payload=updated_payload,
+            current_path=current_path,
+            updated_path=target_path,
+            changed_fields=changed_fields,
+            plan_path_label=plan_path_label,
+            trusted_card_limit=trusted_card_limit,
+            applied_file_change=True,
+        )
+        updated_entries.append(
+            {
+                "action_key": action_key,
+                "entry_id": entry_id,
+                "previous_entry_path": relative_repo_path(repo_root, current_path),
+                "entry_path": relative_repo_path(repo_root, target_path),
+                "decision": decision_name,
+                "risk": risk,
+                "changed_fields": changed_fields,
+                "event_ids": evidence_event_ids,
+                "previous_entry": current_payload,
+                "updated_entry": updated_payload,
+            }
+        )
+
+    i18n_followup = {
+        "required": bool(i18n_followup_entries),
+        "language": ZH_CN,
+        "missing_entry_count": len(i18n_followup_entries),
+        "entries": i18n_followup_entries,
+        "recommended_apply_mode": APPLY_MODE_I18N_ZH_CN,
+        "reason": (
+            "Semantic review changed canonical card fields or found missing zh-CN display fields; "
+            "author or refresh the zh-CN translation plan after semantic review."
+        ),
+    }
+    return {
+        "apply_mode": APPLY_MODE_SEMANTIC_REVIEW,
+        "created_candidate_count": 0,
+        "updated_entry_count": len(updated_entries),
+        "reviewed_entry_count": len(reviewed_entries),
+        "skipped_action_count": len(skipped_actions),
+        "created_candidates": [],
+        "updated_entries": updated_entries,
+        "reviewed_entries": reviewed_entries,
+        "skipped_actions": skipped_actions,
+        "semantic_review_plan_path": plan_path_label,
+        "trusted_card_limit": trusted_card_limit,
+        "trusted_card_modified_count": len(trusted_entry_ids_modified),
+        "i18n_followup": i18n_followup,
+    }
+
+
 def build_apply_payload(
     repo_root: Path,
     run_id: str,
@@ -768,11 +1404,17 @@ def _prepare_consolidation_context(
 def _prepare_consolidation_actions(
     repo_root: Path,
     events: list[dict[str, Any]],
+    include_i18n: bool = False,
+    only_i18n: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     entry_lookup = build_entry_lookup(repo_root)
-    grouped_actions = group_candidate_actions(events)
-    grouped_actions.extend(build_related_card_actions(events, entry_lookup))
-    grouped_actions.extend(build_cross_index_actions(events, entry_lookup))
+    grouped_actions: list[dict[str, Any]] = []
+    if not only_i18n:
+        grouped_actions = group_candidate_actions(events)
+        grouped_actions.extend(build_related_card_actions(events, entry_lookup))
+        grouped_actions.extend(build_cross_index_actions(events, entry_lookup))
+    if include_i18n:
+        grouped_actions.extend(build_i18n_actions(repo_root))
     grouped_actions = sorted(
         grouped_actions,
         key=lambda item: (
@@ -822,6 +1464,8 @@ def _apply_actions_for_mode(
     run_id: str,
     generated_at: str,
     apply_mode: str,
+    i18n_plan_path: Path | None = None,
+    semantic_review_plan_path: Path | None = None,
 ) -> dict[str, Any]:
     if apply_mode == APPLY_MODE_NEW_CANDIDATES:
         return apply_new_candidate_actions(
@@ -844,6 +1488,22 @@ def _apply_actions_for_mode(
             actions=actions,
             run_id=run_id,
             generated_at=generated_at,
+        )
+    if apply_mode == APPLY_MODE_I18N_ZH_CN:
+        return apply_i18n_actions(
+            repo_root=repo_root,
+            actions=actions,
+            run_id=run_id,
+            generated_at=generated_at,
+            i18n_plan_path=i18n_plan_path,
+        )
+    if apply_mode == APPLY_MODE_SEMANTIC_REVIEW:
+        return apply_semantic_review_actions(
+            repo_root=repo_root,
+            actions=actions,
+            run_id=run_id,
+            generated_at=generated_at,
+            semantic_review_plan_path=semantic_review_plan_path,
         )
     return build_empty_apply_summary(apply_mode)
 
@@ -881,6 +1541,8 @@ def _run_apply_phase(
     generated_at: str,
     apply_mode: str,
     artifact_paths: dict[str, Any],
+    i18n_plan_path: Path | None = None,
+    semantic_review_plan_path: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     apply_summary = _apply_actions_for_mode(
         repo_root=repo_root,
@@ -889,6 +1551,8 @@ def _run_apply_phase(
         run_id=run_id,
         generated_at=generated_at,
         apply_mode=apply_mode,
+        i18n_plan_path=i18n_plan_path,
+        semantic_review_plan_path=semantic_review_plan_path,
     )
     apply_path = _maybe_emit_apply_report(
         repo_root=repo_root,
@@ -911,6 +1575,8 @@ def consolidate_history(
     emit_files: bool = False,
     max_events: int | None = None,
     apply_mode: str = APPLY_MODE_NONE,
+    i18n_plan_path: Path | None = None,
+    semantic_review_plan_path: Path | None = None,
 ) -> dict[str, Any]:
     context = _prepare_consolidation_context(
         repo_root=repo_root,
@@ -922,7 +1588,12 @@ def consolidate_history(
     normalized_apply_mode = str(context["normalized_apply_mode"])
     generated_at = str(context["generated_at"])
     events = list(context["events"])
-    actions, suppressed_actions = _prepare_consolidation_actions(repo_root, events)
+    actions, suppressed_actions = _prepare_consolidation_actions(
+        repo_root,
+        events,
+        include_i18n=normalized_apply_mode == APPLY_MODE_I18N_ZH_CN,
+        only_i18n=normalized_apply_mode == APPLY_MODE_I18N_ZH_CN,
+    )
     proposal_payload = build_proposal_payload(
         repo_root=repo_root,
         run_id=clean_run_id,
@@ -948,6 +1619,8 @@ def consolidate_history(
         generated_at=generated_at,
         apply_mode=normalized_apply_mode,
         artifact_paths=artifact_paths,
+        i18n_plan_path=i18n_plan_path,
+        semantic_review_plan_path=semantic_review_plan_path,
     )
 
     return {
