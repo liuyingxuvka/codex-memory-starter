@@ -11,8 +11,10 @@
 </p>
 
 `Khaos Brain` 是一套给 AI agent 使用的“脑式”经验系统：它把任务经验、预测模型、用户偏好、运行时教训和可共享 Skill 组织成可观察、可维护、可 Git 版本化的卡片库。
+`Khaos Brain` is a “brain-like” experience system for AI agents: it organizes task experience, predictive models, user preferences, runtime lessons, and shareable skills into a card library that is observable, maintainable, and Git-versionable.
 
 当前发行版是 Codex-first：安装器、全局 Skill、`AGENTS.md` 默认规则和 automations 已经为 Codex 打通。更准确地说，它不是概念上只能给 Codex 用的产品，而是一套 AI agent 经验层；只要宿主 agent 能在任务前调用检索、任务后写回证据、运行本地脚本、执行定时维护、加载工作流/Skill，并读写 Git 仓库，就可以按同一结构适配。
+The current release is Codex-first: the installer, global skills, default rules in `AGENTS.md`, and automations have already been integrated with Codex. More precisely, it is not a product conceptually limited to Codex, but rather an experience layer for AI agents; as long as the host agent can call and retrieve data before a task, write back evidence after a task, run local scripts, perform scheduled maintenance, load workflows/Skills, and read/write Git repositories, it can be adapted to the same structure.
 
 ## 产品预览 / Product Preview
 
