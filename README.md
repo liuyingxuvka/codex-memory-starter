@@ -10,140 +10,160 @@
   <img src="assets/khaos-brain-icon.png" alt="Khaos Brain icon" width="136">
 </p>
 
-一个给 Codex 使用的本地“脑式”记忆系统：醒着工作，睡眠整理，做梦探索，再用桌面卡片界面把这些经验真正看见。
+`Khaos Brain` 是一套给 AI agent 使用的“脑式”经验系统：它把任务经验、预测模型、用户偏好、运行时教训和可共享 Skill 组织成可观察、可维护、可 Git 版本化的卡片库。
 
-A local brain-like memory system for Codex: work while awake, consolidate in sleep, explore in dreams, and inspect the result through a desktop card library.
+当前发行版是 Codex-first：安装器、全局 Skill、`AGENTS.md` 默认规则和 automations 已经为 Codex 打通。更准确地说，它不是概念上只能给 Codex 用的产品，而是一套 AI agent 经验层；只要宿主 agent 能在任务前调用检索、任务后写回证据、运行本地脚本、执行定时维护、加载工作流/Skill，并读写 Git 仓库，就可以按同一结构适配。
 
 ## 产品预览 / Product Preview
 
-| Desktop Library | Card Detail |
-| --- | --- |
-| ![Khaos Brain desktop overview in English](assets/screenshots/desktop-overview-en.png) | ![Khaos Brain desktop detail view in English](assets/screenshots/desktop-detail-en.png) |
+| Local + Organization Cards | Organization Source | Card Detail |
+| --- | --- | --- |
+| ![Khaos Brain desktop overview with local and organization cards](assets/screenshots/desktop-overview-en.png) | ![Khaos Brain organization source view](assets/screenshots/desktop-organization-en.png) | ![Khaos Brain card detail view](assets/screenshots/desktop-detail-en.png) |
 
 ## 中文
 
-### 这是什么
+### 它解决什么问题
 
-`Khaos Brain` 不是一个把提示词、规则和零散笔记塞进文件夹里的仓库。
+大多数 AI 记忆功能只是在保存“以后记得这样做”。这太浅了。
 
-它更像是一套接在 Codex 身上的“外接大脑”：
+真实协作里更有价值的是经验模型：
 
-- 任务会留下经历
-- 经历会被编码成记忆
-- 记忆会在真正需要时被回忆出来
-- 真实证据会在 `Sleep` 中被整理
-- 邻近但还没被完全验证的可能，会在 `Dream` 中被小范围探索
-- 系统自己的运行机制会在 `Architect` 中被克制地维护
+- 在什么条件下
+- 采取什么动作
+- 更可能得到什么结果
+- 哪条路线失败过，哪条路线更稳
+- 这个经验来自谁、在哪台机器上、是否已经被信任
+- 如果一个 Skill 很关键，它到底在哪类任务里有用
 
-所以它想做的，不只是“记住一条规则”，而是尽量模仿人类大脑处理经验的节律：
+`Khaos Brain` 把这些内容做成卡片。卡片不是黑盒向量，不是散乱笔记，也不是只能靠人手维护的规则列表。它们是文件型、可阅读、可搜索、可审查、可合并、可回滚的经验单元。
 
-- 醒着时做事
-- 做完后留下痕迹
-- 睡眠时整理
-- 做梦时联想
-- 下午审阅和优化维护机制
-- 下次遇到类似情境时更快想起什么更可能有效
+### 为什么它像一个“脑”
 
-### 为什么它像一个“脑”，而不是一个规则盒子
+这套系统刻意模拟一种脑式节律：
 
-真实任务从来不是干净整齐的。
+- 醒着做任务：agent 在任务前检索相关经验，在任务后写回观察。
+- 睡眠整理：`KB Sleep` 合并重复卡片、拆分臃肿卡片、修正低质量经验、维护可信度。
+- 做梦探索：`KB Dream` 对相近但未充分验证的机会做小范围探索。
+- 架构审阅：`KB Architect` 审查安装器、自动化、回滚、proposal 队列和维护机制本身。
+- 组织维护：组织库也有自己的维护流程，用来整理共享候选卡、共享 Skill 和审查结果。
 
-它们会带着上下文、失误、修正、偏好、例外和重复模式一起出现。`Khaos Brain` 这个名字，就是想强调这件事：
+所以它不是只“记住一句提示词”。它在持续整理经验、模型和工具使用方式，让下一次任务更像是从已有经验出发，而不是从空白上下文出发。
 
-- 进入系统的经验，起点往往是混乱的
-- 系统要做的不是把混乱假装成单条规则
-- 而是把这些经验整理成可检索、可审查、可版本化的模型关系
+### 个人模式和组织模式
 
-也就是说，它更关心的是：
+默认是个人模式：每台电脑维护自己的本地 KB。这样保留了个人偏好、本机上下文、私有历史和本地 Skill 使用痕迹。
 
-- 在什么场景下
-- 做了什么动作
-- 更可能发生什么结果
-- 如果换一条路径，又更可能发生什么
+组织模式是可选增强：在 Settings 中填入并验证一个 Khaos organization KB GitHub 仓库后，桌面 UI 会启用组织来源、组织卡片、组织 Skill registry 和贡献/维护管线。
 
-这也是它和很多普通“记忆功能”最大的区别。
+这不是把所有人的偏好混在一起。设计边界是：
 
-### 它和普通记忆功能哪里不一样
+- 个人偏好默认留在本地。
+- 可复用的任务模型、工程经验、维护路线和 Skill 使用经验可以进入组织候选池。
+- 组织卡片会带来源、作者、状态、可信度和只读标记。
+- 本地优先检索；组织卡片同步到本地缓存后，真正使用过才会被采纳成本地经验。
+- 被采纳的组织经验以后由本地维护流程继续合并、拆分或改进，再作为反馈回流组织候选池。
 
-- 它保存的不只是“以后这样做”，而是更像“如果这样做，更可能发生什么”。
-- 它不只保留一个结论，也可以保留 alternatives 和对比路径。
-- 它不只记任务经验，也记用户偏好、协作方式和 Codex 自己的运行时行为。
-- 它不是黑盒数据库，而是文件型、可审查、可 Git 版本化的结构化记忆系统。
+### 组织共享的不只是 Skill
 
-所以它不是在造一个“会背规则的小本子”，而是在造一个对经验有整理能力的脑式系统。
+组织能力的核心不是“把 Skill 文件复制给同事”。更重要的是共享经验模型。
 
-### 它到底在建模什么
+一张组织卡片可以说明：
 
-这套系统至少在建三类模型：
+- 这个经验适用在哪类任务
+- 使用什么动作或路线
+- 预期能改善什么结果
+- 可信度和状态是什么
+- 作者是谁
+- 是否依赖某个 Skill
 
-1. 任务模型
-   某类发布、调试、写作、协作任务里，什么路径更可能成功。
-2. 用户模型
-   某个用户更偏好什么结构、什么说明顺序、什么交付边界。
-3. 运行时模型
-   Codex 在什么提示、流程、工具条件下更容易漏什么，改完后什么更稳。
+如果卡片依赖 Skill，Skill 会作为卡片绑定的附件进入组织候选流程。组织维护会同时审查卡片和 Skill：候选 Skill 不自动安装，只有通过审核、记录版本和内容哈希的 approved Skill 才可以被其他机器按策略安装。每台电脑只保留同一 Skill 的最新可用版本；原始作者的更新通过新的卡片/候选包进入组织维护。
 
-因此它保存的不只是“结论”，也包括：
+这让 Skill 共享有上下文：别人不只是拿到一个脚本，而是知道它为什么存在、什么时候该用、有什么边界。
 
-- 条件
-- 动作
-- 结果
-- 修正前后的差异
-- 下一次应该如何操作
+### 为什么用 GitHub 做组织 KB
 
-### Sleep、Dream 和 Architect
+组织共享库可以直接是一个私有 GitHub 仓库。
 
-这个仓库现在把维护拆成三条不同的“脑活动”节律：
+这样做的好处很现实：
 
-- `KB Sleep`
-  整理真实发生过的任务证据，把 observation、history 和候选经验慢慢压成更稳的结构；它可以通过 AI-authored semantic review 谨慎改写、升降级或废弃卡片，但一次最多自动修改 3 张 trusted 卡，默认每天 `12:00` 运行。
-- `KB Dream`
-  对邻近但还没被充分验证的机会做一次有边界的小实验，帮助系统发现潜在新模式，默认每天 `13:00` 运行。
-- `KB Architect`
-  审阅 Sleep、Dream、安装器、自动化、回滚、验证和 proposal 队列这些运行机制本身；它只用 `Evidence / Impact / Safety` 三项判断，不维护卡片内容，默认每天 `14:00` 运行。
+- 不需要单独部署记忆服务器。
+- 小团队和组织可以用现成的 GitHub 权限、分支、review、Actions 和 rollback。
+- 卡片、候选池、导入记录和 Skill registry 都是可审查文件。
+- 自动维护可以提交提案或分支，GitHub 负责检查、合并和历史追踪。
+- 如果自动维护出错，人可以在 GitHub 上回退。
+- 对大多数团队来说，私有仓库已经足够免费、简单、可管理。
 
-它们不会并发混跑，而且都由安装器写入 Codex 的 automations。自动化规格不锁定某个模型版本；它记录 `model_policy = "strongest-available"` 和 `reasoning_effort_policy = "deepest"`，安装器会在每台机器上解析成当前可用的最强通用 GPT 模型和该模型支持的最深 reasoning。
+也就是说，组织经验共享不依赖一个昂贵或封闭的云记忆平台。它可以从一个普通 GitHub 仓库开始。
 
-所以当你把仓库换到另一台机器时，只要重新让 Codex 安装一次，这套“醒着做事, 睡着整理, 做梦扩边, 下午审阅机制”的维护节律就会一起恢复。
+### 为什么它比普通 AI 工作流/记忆产品更值得尝试
 
-### 它和 Codex 的关系
+- **可观察**：卡片能直接打开看，来源、作者、可信度、状态和 Skill 依赖都在 UI 里。
+- **可维护**：Sleep / Dream / Architect / organization maintenance 会把经验库当成活系统整理。
+- **本地优先**：个人 KB 不被组织模式覆盖；个人偏好和私有经验默认留在本机。
+- **组织可共享**：团队共享的是经验模型、任务路线、维护方法和经过审查的 Skill，而不只是零散笔记。
+- **Git 原生**：历史、diff、review、回滚、私有权限和自动合并都可以复用 GitHub。
+- **开源可改**：结构、卡片、脚本、Skill 和 UI 都是文件与源码，不是封闭 SaaS。
+- **不假装全自动万能**：高价值组织共享仍走候选、审查、维护和可回滚流程。
 
-这不是一个“换成任何 AI 都能直接照抄运行”的通用模板。
+### 它依赖什么样的 AI agent
 
-它明确依赖 Codex 已经提供的能力，例如：
+当前开箱即用目标是 Codex，因为 Codex 已经有这些能力：
 
+- repository-level instructions，例如 `AGENTS.md`
 - skills / preflight invocation
-- 仓库级指令，例如 `AGENTS.md`
+- 本地脚本执行
 - automations / scheduled runs
-- 本地 Python 脚本执行
-- 仓库里的检索、maintenance 和 write-back 流程
+- GitHub 和文件系统工作流
+- 任务结束后的 observation / postflight 写回
 
-也正因为它依赖 Codex，这套系统才不需要用户持续盯着维护：
-
-- Codex 可以在任务开始前先检索已有经验
-- Codex 可以在任务结束后把 observation 写回 history 或 candidates
-- Codex 可以按定时规则自动跑 sleep / dream / architect maintenance
-- 用户不需要天天手工检查这个库有没有整理、有没有继续长经验
+如果未来适配其他 AI agent，对方至少需要类似能力：能在任务前读取经验、在任务后写回证据、加载可复用 workflow/Skill、执行本地维护脚本，并能安全地读写 Git 仓库。
 
 ### 如果你只是想使用它
 
-默认路径应该是：
+最自然的方式是把这个仓库交给你的 AI agent，然后说：
 
-1. 把这个仓库发给 Codex。
-2. 明确说你想“在本地安装并使用这套系统”。
-3. 让 Codex 完成安装、检查、接入和后续维护。
+```text
+请在本机安装并启用这套 Khaos Brain 经验系统，安装后运行检查。
+```
 
-对大多数人来说，这比先自己读完整个 README、再手动敲所有命令更自然，也更接近这个项目本来的使用方式。
+Codex 当前会按仓库规则默认执行：
 
-### 如果你只是想打开桌面版
+```bash
+python scripts/install_codex_kb.py --json
+python scripts/install_codex_kb.py --check --json
+```
 
-当前 GitHub Release 会附带 Windows 预览版入口 `KhaosBrain.exe`：
+检查通过后，这台机器会获得全局 preflight Skill、KB postflight 规则、`KB Sleep`、`KB Dream`、`KB Architect`，以及组织贡献/组织维护入口。
+
+### 桌面卡片查看器
+
+Windows Release 附带预览版 `KhaosBrain.exe`：
 
 - 到 [GitHub Releases](https://github.com/liuyingxuvka/Khaos-Brain/releases/latest) 下载 `KhaosBrain.exe`
 - 把它放在这个仓库目录里，或通过命令行参数 `--repo-root` 指向这个仓库
-- 双击后即可浏览卡片；它只打包查看器代码和公开图标资源
-- 它不会把 `kb/private/`、`kb/history/`、`kb/candidates/` 或真实经验卡片封进二进制
-- 源码入口仍然是 `python scripts/kb_desktop.py --repo-root . --language en`
+- 双击后即可浏览卡片
+
+源码入口：
+
+```bash
+python scripts/kb_desktop.py --repo-root . --language en
+```
+
+中文界面：
+
+```bash
+python scripts/kb_desktop.py --repo-root . --language zh-CN
+```
+
+无界面检查：
+
+```bash
+python scripts/kb_desktop.py --repo-root . --check
+```
+
+桌面查看器不启动浏览器，不需要本地 web 服务，也不依赖 Electron 或 Node。它读取同一套文件型 KB，并在组织模式下显示本地/组织来源、作者、状态、可信度和 Skill 依赖。
+
+更多 Windows exe、桌面快捷方式和 Codex 打开 UI 的说明见 `docs/windows_desktop_app.md`。组织模式的设计细节见 `docs/organization_mode_plan.md`。
 
 ### 自愿支持项目维护
 
@@ -153,56 +173,6 @@ A local brain-like memory system for Codex: work while awake, consolidate in sle
 
 所有支持都是自愿的，不代表购买技术支持、质保、优先服务、商业授权或功能定制。
 
-### 手动安装与检查（可选）
-
-如果你是协作者，或者你就是想手动跑一遍：
-
-```bash
-python scripts/install_codex_kb.py --json
-python scripts/install_codex_kb.py --check --json
-```
-
-安装器会做三类事情：
-
-- 安装全局 preflight / launcher，让 Codex 知道在仓库任务前先检索这套 KB
-- 在 `$CODEX_HOME/AGENTS.md` 下写入或刷新 repo-managed 的全局默认约束 block，让 KB preflight / postflight 变成另一台机器也能继承的强默认规则层
-- 在 `$CODEX_HOME/automations/` 下刷新 repo-managed 的 `KB Sleep`、`KB Dream` 和 `KB Architect`，并按 `strongest-available` / `deepest` 策略解析当前机器的自动化运行模型
-
-安装完成后，`python scripts/install_codex_kb.py --check --json` 会直接返回一个结构化 checklist。跨机器时，至少应看到这些项目全部通过：
-
-- 全局 predictive KB skill / launcher 已安装
-- 全局 skill 开启 implicit invocation
-- 全局 skill prompt 明确要求 preflight 与 postflight
-- `$CODEX_HOME/AGENTS.md` 中存在 repo-managed 的 KB 默认约束 block
-- 这个 global AGENTS block 明确提到 `$predictive-kb-preflight`
-- 这个 global AGENTS block 明确要求 non-trivial 任务做 explicit KB postflight check
-- `KB Sleep` automation 存在且配置正确，包括模型策略与解析后的运行配置
-- `KB Dream` automation 存在且配置正确，包括模型策略与解析后的运行配置
-- `KB Architect` automation 存在且配置正确，包括模型策略与解析后的运行配置
-- `strong_session_defaults` 为通过
-
-如果其中任一项失败，就不该把这台机器视为“已经完整装好”。
-
-### 本地桌面卡片查看器（实验性）
-
-如果你想人工浏览这套记忆库，可以打开本地桌面窗口：
-
-```bash
-python scripts/kb_desktop.py --repo-root . --language en
-```
-
-这个入口不启动浏览器，不需要本地 web 服务，也不依赖 Electron 或 Node。它使用 Python 标准库的桌面窗口读取同一套文件型 KB：左侧按路线索引导航，右侧以卡片封面的方式查看预测模型。`--language zh-CN` 可以显式切到中文显示层，`--language en` 则适合做英文预览和发布截图。
-
-如果需要 Windows exe、桌面快捷方式或 Codex 打开 UI 的 skill，见 `docs/windows_desktop_app.md`。
-
-如果你在评估可选的组织共享模式，见 `docs/organization_mode_plan.md`。个人模式仍是默认入口；只有在 Settings 里配置并验证一个 Khaos organization KB GitHub 仓库后，组织来源、组织卡片、Skill registry 和贡献管线才会启用。
-
-无界面检查可以运行：
-
-```bash
-python scripts/kb_desktop.py --repo-root . --check
-```
-
 ### 公开仓库里放什么，不放什么
 
 这个公开仓库默认放的是：
@@ -210,7 +180,7 @@ python scripts/kb_desktop.py --repo-root . --check
 - schema
 - 检索、记录、maintenance 工具
 - skills、prompt、安装器和测试
-- 可公开的结构和示例
+- 可公开的结构、截图和示例
 
 默认不应该顺手公开：
 
@@ -227,6 +197,7 @@ python scripts/kb_desktop.py --repo-root . --check
 - `.agents/skills/local-kb-retrieve/`
 - `local_kb/`
 - `tests/`
+- `docs/organization_mode_plan.md`
 
 ### Repository Layout
 
@@ -249,128 +220,154 @@ python scripts/kb_desktop.py --repo-root . --check
 
 ## English Mirror
 
-### What This Is
+### What Khaos Brain Is
 
-`Khaos Brain` is not a repository that stuffs prompts, rules, and scattered notes into folders.
+`Khaos Brain` is a brain-like experience system for AI agents. It organizes task experience, predictive models, user preferences, runtime lessons, and shareable Skills into visible, maintainable, Git-versioned cards.
 
-It is closer to an external brain wired onto Codex:
+The current release is Codex-first: the installer, global Skill, `AGENTS.md` defaults, and automations are already wired for Codex. More precisely, this is not conceptually limited to Codex. It is an AI-agent experience layer. Any host agent with preflight retrieval, post-task write-back, local script execution, scheduled maintenance, reusable workflow/Skill loading, and Git repository access can adapt the same structure.
 
-- tasks leave behind experiences
-- experiences are encoded into memory
-- memory is recalled when it is actually needed
-- real evidence is consolidated during `Sleep`
-- nearby but not-yet-fully-validated possibilities are explored in a bounded way during `Dream`
-- the system's own operating mechanisms are maintained conservatively during `Architect`
+### The Problem It Solves
 
-So its goal is not merely to “remember one rule.” It is trying to imitate the rhythm with which a human brain handles experience:
+Most AI memory features save something like “remember to do this next time.” That is too shallow.
 
-- act while awake
-- leave traces after acting
-- consolidate during sleep
-- make associations during dreams
-- review and improve maintenance mechanisms in the afternoon
-- recall more quickly what is more likely to work the next time a similar situation appears
+The useful unit in real work is an experience model:
 
-### Why It Feels Like A Brain Instead Of A Rule Box
+- under which conditions
+- taking which action
+- makes which result more likely
+- which route failed, and which route became more stable
+- who contributed the lesson, from which source, and whether it is trusted
+- if a Skill matters, in which task class it actually helps
 
-Real tasks are never perfectly neat.
+`Khaos Brain` turns those models into cards. Cards are not an opaque vector store, scattered notes, or a manually maintained rule list. They are file-based, readable, searchable, reviewable, mergeable, and reversible units of experience.
 
-They arrive together with context, mistakes, revisions, preferences, exceptions, and recurring patterns. The name `Khaos Brain` is meant to emphasize exactly that:
+### Why It Feels Like A Brain
 
-- the experience entering the system usually begins in chaos
-- the system's job is not to pretend that chaos was always one clean rule
-- its job is to reorganize that experience into retrievable, reviewable, versioned model relationships
+The system deliberately follows a brain-like rhythm:
 
-In other words, it cares about:
+- Awake work: the agent retrieves relevant experience before a task and writes observations back afterward.
+- Sleep consolidation: `KB Sleep` merges repeated cards, splits swollen cards, repairs weak lessons, and maintains confidence.
+- Dream exploration: `KB Dream` explores nearby but under-validated opportunities in a bounded way.
+- Architecture review: `KB Architect` reviews the installer, automation, rollback, proposal queues, and maintenance machinery itself.
+- Organization maintenance: the shared organization KB has its own maintenance path for contributed cards, shared Skills, and review outcomes.
 
-- under what scenario
-- taking what action
-- makes what result more likely
-- and what becomes more likely if a different path is chosen
+So this is not just a prompt notebook. It continuously organizes experience, models, and tool-use behavior so the next task starts from accumulated evidence instead of an empty context window.
 
-That is also the biggest difference between this project and many ordinary “memory features.”
+### Personal Mode And Organization Mode
 
-### How It Differs From Ordinary Memory Features
+Personal mode is the default. Each machine maintains its own local KB, preserving personal preferences, local context, private history, and local Skill-use evidence.
 
-- It does not save only “do this next time.” It saves something closer to “if we do this, this result becomes more likely.”
-- It does not keep only one conclusion. It can also preserve alternatives and contrastive paths.
-- It models more than task experience. It also models user preferences, collaboration patterns, and Codex's own runtime behavior.
-- It is not a black-box database. It is a file-based, inspectable, Git-versioned structured memory system.
+Organization mode is optional. After Settings validates a Khaos organization KB GitHub repository, the desktop UI enables organization sources, organization cards, the organization Skill registry, and the contribution / maintenance pipeline.
 
-So this is not a tiny notebook that can recite rules. It is a brain-like system for organizing experience.
+The design boundary is intentional:
 
-### What It Is Actually Modeling
+- personal preferences stay local by default
+- reusable task models, engineering experience, maintenance routes, and Skill-use evidence can enter the organization candidate pool
+- organization cards carry source, author, status, confidence, and read-only metadata
+- local retrieval remains first; organization cards sync into a local cache and become local experience only after actual use
+- adopted organization experience is then maintained locally, and meaningful improvements can flow back as organization candidates
 
-The system is building at least three kinds of models:
+### Organization Sharing Is More Than Skill Sharing
 
-1. Task models
-   In a certain kind of release, debugging, writing, or collaboration task, which path is more likely to succeed.
-2. User models
-   What structure, explanation order, and delivery boundary a specific user is more likely to prefer.
-3. Runtime models
-   Under which prompts, workflows, or tool conditions Codex is more likely to miss something, and which revised path becomes more stable.
+The core organization feature is not “copy Skill files to teammates.” The more important layer is shared experience models.
 
-So it preserves more than a conclusion. It also preserves:
+An organization card can explain:
 
-- conditions
-- actions
-- results
-- the difference between the weaker path and the revised path
-- how the next run should operate
+- which task class the lesson applies to
+- which route or action to use
+- what outcome it predicts
+- its status and confidence
+- who authored it
+- whether it depends on a Skill
 
-### Sleep, Dream, And Architect
+When a card depends on a Skill, the Skill travels as a card-bound bundle through the organization candidate flow. Organization maintenance reviews the card and the Skill together. Candidate Skills are not auto-installed. Only approved Skills with pinned version and content hash metadata are eligible for installation on another machine. Each machine keeps the latest usable version of the same Skill; author updates arrive through new card / bundle candidates and are reconciled by maintenance.
 
-The repository now separates maintenance into three different kinds of “brain activity”:
+That gives Skill sharing context. A teammate receives not only a script, but the experience card that explains why it exists, when to use it, and where its boundaries are.
 
-- `KB Sleep`
-  consolidates evidence from real tasks, gradually compressing observations, history, and candidate lessons into more stable structures; it can cautiously rewrite, promote, demote, or deprecate cards through AI-authored semantic review, with at most 3 trusted cards modified per run, and runs by default every day at `12:00`
-- `KB Dream`
-  runs one bounded experiment on nearby but under-validated opportunities, helping the system discover possible new patterns, and runs by default every day at `13:00`
-- `KB Architect`
-  reviews the operating mechanisms around Sleep, Dream, installation, automation, rollback, validation, and the proposal queue; it uses only `Evidence / Impact / Safety`, does not maintain card content, and runs by default every day at `14:00`
+### Why GitHub Is Enough For An Organization KB
 
-These lanes do not run concurrently, and all three are provisioned into Codex automations by the installer. The automation specs do not pin a model version; they record `model_policy = "strongest-available"` and `reasoning_effort_policy = "deepest"`, and the installer resolves them on each machine to the strongest available general GPT model and the deepest reasoning level that model supports.
+An organization shared KB can be a private GitHub repository.
 
-So when the repository moves to another machine, asking Codex to install it again restores the same “work while awake, consolidate while asleep, expand while dreaming, review the mechanisms afterward” maintenance rhythm there too.
+That has practical advantages:
 
-### How It Relates To Codex
+- no separate memory server to deploy
+- existing GitHub permissions, branches, review, Actions, and rollback
+- cards, candidate pools, import records, and Skill registries remain inspectable files
+- automated maintenance can submit proposals or branches while GitHub handles checks, merge, and history
+- if automation makes a bad change, a human can revert it in GitHub
+- for many teams, a private repository is already free, simple, and manageable
 
-This is not a generic template that runs the same way with any AI.
+In other words, organization memory does not need an expensive or closed cloud memory platform. It can start as a normal GitHub repository.
 
-It explicitly depends on capabilities that Codex already provides, such as:
+### Why Try This Instead Of Another AI Workflow Or Memory Product
 
-- skills / preflight invocation
+- **Visible**: cards can be opened directly; source, author, confidence, status, and Skill dependencies are shown in the UI.
+- **Maintainable**: Sleep / Dream / Architect / organization maintenance treat memory as a living system.
+- **Local-first**: organization mode does not overwrite the personal KB; private lessons and preferences stay local by default.
+- **Organization-ready**: teams share experience models, task routes, maintenance methods, and reviewed Skills, not just notes.
+- **Git-native**: history, diff, review, rollback, private access, and auto-merge can reuse GitHub.
+- **Open and customizable**: structure, cards, scripts, Skills, and UI are files and source code, not a closed SaaS box.
+- **Honest automation**: high-value shared knowledge still goes through candidates, review, maintenance, and rollback.
+
+### What Kind Of AI Agent It Needs
+
+The out-of-the-box host is currently Codex because Codex already supports:
+
 - repository-level instructions such as `AGENTS.md`
+- skills / preflight invocation
+- local script execution
 - automations / scheduled runs
-- local Python script execution
-- repository-native retrieval, maintenance, and write-back flows
+- GitHub and filesystem workflows
+- post-task observation / postflight write-back
 
-And because it depends on Codex, the system does not require a human to babysit it continuously:
-
-- Codex can retrieve prior experience before a task begins
-- Codex can write observations back to history or candidates after a task ends
-- Codex can run sleep / dream / architect maintenance on a schedule
-- the user does not have to keep checking whether the library was consolidated or extended
+To adapt the system to another AI agent, that agent needs comparable capabilities: reading experience before work, writing evidence after work, loading reusable workflows / Skills, running local maintenance scripts, and safely reading and writing Git repositories.
 
 ### If You Just Want To Use It
 
-The default path should be:
+The most natural path is to hand this repository to your AI agent and say:
 
-1. Send this repository to Codex.
-2. State clearly that you want to install and use the system locally.
-3. Let Codex handle installation, checks, integration, and ongoing maintenance.
+```text
+Install and enable this Khaos Brain experience system on this machine, then run the health check.
+```
 
-For most people, this is more natural than reading the entire README first and manually typing every command, and it is also closer to the way the project is meant to be used.
+Codex currently follows the repository rules and runs:
 
-### If You Just Want The Desktop App
+```bash
+python scripts/install_codex_kb.py --json
+python scripts/install_codex_kb.py --check --json
+```
 
-The current GitHub Release includes the Windows preview entry `KhaosBrain.exe`:
+After the check passes, the machine has the global preflight Skill, KB postflight rules, `KB Sleep`, `KB Dream`, `KB Architect`, and the organization contribution / maintenance entry points.
+
+### Desktop Card Viewer
+
+The Windows Release includes the preview `KhaosBrain.exe`:
 
 - download `KhaosBrain.exe` from [GitHub Releases](https://github.com/liuyingxuvka/Khaos-Brain/releases/latest)
-- place it in this repository directory, or pass `--repo-root` on the command line to point it at this repository
-- double-click it to browse cards; it bundles only viewer code and public icon assets
-- it does not bundle `kb/private/`, `kb/history/`, `kb/candidates/`, or real memory cards into the binary
-- the source entry remains `python scripts/kb_desktop.py --repo-root . --language en`
+- place it in this repository directory, or pass `--repo-root` to point it at this repository
+- double-click it to browse cards
+
+Source entry:
+
+```bash
+python scripts/kb_desktop.py --repo-root . --language en
+```
+
+Chinese UI:
+
+```bash
+python scripts/kb_desktop.py --repo-root . --language zh-CN
+```
+
+Headless check:
+
+```bash
+python scripts/kb_desktop.py --repo-root . --check
+```
+
+The desktop viewer does not start a browser, a local web service, Electron, or Node. It reads the same file-based KB and, in organization mode, shows local / organization source, author, status, confidence, and Skill dependency metadata.
+
+For the Windows exe, desktop shortcut, or Codex UI-opening Skill, see `docs/windows_desktop_app.md`. For the organization-mode design, see `docs/organization_mode_plan.md`.
 
 ### Voluntary Support
 
@@ -380,58 +377,6 @@ If this project is useful to you, you can support its development here:
 
 Contributions are voluntary and do not purchase support, warranty, priority service, commercial rights, or feature requests.
 
-### Manual Install And Check (Optional)
-
-If you are a collaborator, or you simply want to run it yourself:
-
-```bash
-python scripts/install_codex_kb.py --json
-python scripts/install_codex_kb.py --check --json
-```
-
-The installer does three main things:
-
-- installs the global preflight / launcher so Codex knows to consult this KB before repository work
-- writes or refreshes a repo-managed defaults block under `$CODEX_HOME/AGENTS.md` so KB preflight / postflight become strong inherited defaults on another machine too
-- refreshes the repo-managed `KB Sleep`, `KB Dream`, and `KB Architect` automations under `$CODEX_HOME/automations/`, resolving the current machine's automation runtime from the `strongest-available` / `deepest` policy
-
-After installation, `python scripts/install_codex_kb.py --check --json` returns a structured checklist directly. On another machine, you should treat the install as complete only when these checks all pass:
-
-- the global predictive KB skill / launcher exists
-- the global skill enables implicit invocation
-- the global skill prompt explicitly requires preflight and postflight reminders
-- `$CODEX_HOME/AGENTS.md` contains the repo-managed predictive KB defaults block
-- that global AGENTS block mentions `$predictive-kb-preflight`
-- that global AGENTS block requires an explicit KB postflight check for non-trivial work
-- `KB Sleep` exists and matches the repository automation spec, including model policy and resolved runtime
-- `KB Dream` exists and matches the repository automation spec, including model policy and resolved runtime
-- `KB Architect` exists and matches the repository automation spec, including model policy and resolved runtime
-- `strong_session_defaults` is true
-
-If any required checklist item fails, the machine should be treated as only partially installed.
-
-### Local Desktop Card Viewer (Experimental)
-
-To browse the memory library manually, open the local desktop window:
-
-```bash
-python scripts/kb_desktop.py --repo-root . --language en
-```
-
-This entry point does not start a browser, a local web server, Electron, or Node. It uses Python's standard desktop toolkit and reads the same file-based KB: route navigation stays on the left, and predictive model cards are shown as cover-like cards on the right. `--language zh-CN` switches explicitly to the Chinese display layer, while `--language en` is useful for English previews and release screenshots.
-
-The desktop viewer supports a local display-language setting. English card fields remain the canonical source; optional `i18n.zh-CN` fields are filled by sleep maintenance and used for Chinese display with English fallback.
-
-For the Windows exe, desktop shortcut, or Codex UI-opening skill, see `docs/windows_desktop_app.md`.
-
-For the optional organization-sharing mode, see `docs/organization_mode_plan.md`. Personal mode remains the default. Organization sources, organization cards, the Skill registry, and the contribution pipeline are enabled only after Settings validates a Khaos organization KB GitHub repository.
-
-For a headless check:
-
-```bash
-python scripts/kb_desktop.py --repo-root . --check
-```
-
 ### What This Public Repository Includes And Excludes
 
 This public repository is meant to include:
@@ -439,7 +384,7 @@ This public repository is meant to include:
 - schema
 - retrieval, recording, and maintenance tools
 - skills, prompts, installer logic, and tests
-- public-safe structures and examples
+- public-safe structures, screenshots, and examples
 
 It should not casually publish:
 
@@ -456,6 +401,7 @@ A good starting order is:
 - `.agents/skills/local-kb-retrieve/`
 - `local_kb/`
 - `tests/`
+- `docs/organization_mode_plan.md`
 
 ### Repository Layout
 

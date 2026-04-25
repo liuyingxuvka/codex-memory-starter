@@ -2297,12 +2297,15 @@ class KbDesktopApp(tk.Tk):
             source_meta = _source_line(card, self.language) if self._should_show_source_metadata(card) else ""
             if source_meta:
                 meta += f" · {source_meta}"
-            pill_right = u(32) + min(u(260), max(u(128), u(30) + len(meta) * u(8)))
+            pill_width = min(max(u(128), u(30) + len(meta) * u(7)), max(u(128), canvas_width - u(64)))
+            pill_right = u(32) + pill_width
             self._round_rect(header_canvas, u(32), banner_h - u(44), pill_right, banner_h - u(18), u(13), fill=palette["pill"])
             header_canvas.create_text(
-                (u(32) + pill_right) / 2,
+                u(46),
                 banner_h - u(31),
                 text=_short_text(meta, 74),
+                anchor="w",
+                width=max(u(96), pill_width - u(28)),
                 fill=palette["pill_text"],
                 font=("Segoe UI", f(10), "bold"),
             )
