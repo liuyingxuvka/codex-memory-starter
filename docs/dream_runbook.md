@@ -26,7 +26,7 @@ It is not a license for free-form tool wandering or hidden self-belief growth.
 - Do not run dream mode while a sleep pass is active or while sleep artifacts for the same repository state are still unresolved.
 - If consolidation already marks a route action as sleep-eligible for candidate creation, dream mode should leave candidate creation to sleep maintenance instead of duplicating it.
 - Keep dream mode separate from Architect mechanism maintenance. Dream explores evidence; Architect maintains the operating mechanisms and proposal queue after Sleep and Dream have settled.
-- Offset the schedules. A simple default is to keep at least one clear non-overlapping window between them.
+- Offset the schedules. A simple default is to run Sleep at 12:00, Dream at 13:00, and Architect at 14:00. Each core maintenance lane should check that the other two lanes are not running before it starts, rather than relying on a post-completion cooldown.
 - If there is any doubt about overlap, skip dream mode and leave a history note rather than racing the two passes.
 
 ## Eligible Inputs
@@ -145,7 +145,7 @@ python .agents/skills/local-kb-retrieve/scripts/kb_dream.py --json
 
 This runner already:
 
-- inspects recent sleep timing before acting
+- checks core maintenance lane status before acting
 - retrieves prior Dream-process guidance into `preflight.json`
 - scores dream opportunities from current history, taxonomy gaps, and existing candidate or low-confidence cards
 - writes `plan.json`, `preflight.json`, `opportunities.json`, `experiments.json`, `execution_plan.json`, and `report.json` under `kb/history/dream/<run-id>/`
@@ -203,6 +203,6 @@ Run one dream pass manually:
 
 ```powershell
 python .agents/skills/local-kb-retrieve/scripts/kb_dream.py `
-  --sleep-cooldown-minutes 45 `
+  --sleep-cooldown-minutes 0 `
   --json
 ```

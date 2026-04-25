@@ -10,6 +10,7 @@ from local_kb.common import normalize_text, slugify, utc_now_iso
 from local_kb.consolidate import APPLY_MODE_NONE, consolidate_history, sanitize_run_id
 from local_kb.consolidate_events import load_history_events, relative_repo_path
 from local_kb.feedback import build_observation, record_observation
+from local_kb.maintenance_lanes import build_lane_guard, write_lane_status
 from local_kb.search import render_search_payload, search_entries
 from local_kb.store import history_events_path
 
@@ -197,6 +198,7 @@ def build_architect_guards(
     sleep_cooldown_minutes: int,
     dream_cooldown_minutes: int,
 ) -> dict[str, Any]:
+    lane_guard = build_lane_guard(repo_root, "kb-architect")
     sleep_guard = _latest_run_guard(
         repo_root,
         root_parts=("kb", "history", "consolidation"),
@@ -210,7 +212,8 @@ def build_architect_guards(
         cooldown_minutes=dream_cooldown_minutes,
     )
     return {
-        "blocked": bool(sleep_guard["blocked"] or dream_guard["blocked"]),
+        "blocked": bool(lane_guard["blocked"] or sleep_guard["blocked"] or dream_guard["blocked"]),
+        "lane": lane_guard,
         "sleep": sleep_guard,
         "dream": dream_guard,
     }
@@ -768,13 +771,13 @@ def _write_skip_event(
         task_summary=f"KB Architect run {run_id} skipped because another maintenance lane may overlap",
         route_hint=ARCHITECT_ROUTE_HINT,
         hit_quality="none",
-        outcome="Architect skipped before proposal review because Sleep or Dream cooldown was still active.",
-        comment="Architect should not overlap with Sleep or Dream maintenance windows.",
+        outcome="Architect skipped before proposal review because another core maintenance lane was still running or a legacy cooldown guard was active.",
+        comment="Architect should not overlap with Sleep or Dream maintenance runs.",
         suggested_action="none",
-        scenario="Scheduled Architect run starts while another KB maintenance lane is still inside its cooldown window.",
+        scenario="Scheduled Architect run starts while another KB maintenance lane is still running.",
         action_taken="Skipped mechanism proposal maintenance and wrote a history note.",
         observed_result="No proposal queue changes were made.",
-        operational_use="Retry on the next scheduled Architect run after Sleep and Dream artifacts have settled.",
+        operational_use="Retry on the next scheduled Architect run after the active maintenance lane completes.",
         reuse_judgment="Reusable as a concurrency guard event.",
         source_kind="architect-maintenance",
         agent_name="kb-architect",
@@ -792,13 +795,14 @@ def run_architect_maintenance(
     *,
     run_id: str | None = None,
     max_events: int | None = None,
-    sleep_cooldown_minutes: int = 60,
-    dream_cooldown_minutes: int = 20,
+    sleep_cooldown_minutes: int = 0,
+    dream_cooldown_minutes: int = 0,
 ) -> dict[str, Any]:
     generated_at = utc_now_iso()
     resolved_run_id = sanitize_run_id(run_id or f"kb-architect-{utc_now_compact()}")
     run_dir = architect_run_dir(repo_root, resolved_run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
+    write_lane_status(repo_root, "kb-architect", "running", run_id=resolved_run_id)
 
     execution_plan = build_initial_execution_plan(repo_root, run_id=resolved_run_id, generated_at=generated_at)
     write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
@@ -827,6 +831,7 @@ def run_architect_maintenance(
 
     if guards["blocked"]:
         event_id = _write_skip_event(repo_root, run_id=resolved_run_id, guards=guards)
+        write_lane_status(repo_root, "kb-architect", "skipped", run_id=resolved_run_id)
         _set_checkpoint_status(
             execution_plan,
             "postflight-observation",
@@ -843,7 +848,7 @@ def run_architect_maintenance(
             "run_id": resolved_run_id,
             "generated_at": generated_at,
             "status": "skipped",
-            "reason": "maintenance-lane-cooldown",
+            "reason": "maintenance-lane-active" if guards["lane"]["blocked"] else "maintenance-lane-cooldown",
             "guards": guards,
             "history_event_ids": [event_id],
             "artifact_paths": {
@@ -966,4 +971,5 @@ def run_architect_maintenance(
         },
     }
     write_json_file(run_dir / REPORT_FILENAME, result)
+    write_lane_status(repo_root, "kb-architect", "completed", run_id=resolved_run_id)
     return result

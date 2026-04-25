@@ -31,7 +31,7 @@ Required checkpoint order:
 1. Confirm repository root and read `PROJECT_SPEC.md`, `docs/architecture_runbook.md`, and this prompt.
 2. Run Architect self-preflight against `system/knowledge-library/maintenance`.
 3. Run:
-   `python .agents/skills/local-kb-retrieve/scripts/kb_architect.py --json --sleep-cooldown-minutes 60 --dream-cooldown-minutes 20`
+   `python .agents/skills/local-kb-retrieve/scripts/kb_architect.py --json --sleep-cooldown-minutes 0 --dream-cooldown-minutes 0`
 4. Inspect the generated artifacts under `kb/history/architecture/runs/<run-id>/`.
 5. Inspect the maintained queue at `kb/history/architecture/proposal_queue.json`.
 6. Confirm each mechanism proposal has exactly these review axes:

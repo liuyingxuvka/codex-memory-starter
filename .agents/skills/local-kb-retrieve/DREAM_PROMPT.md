@@ -18,7 +18,7 @@ Goal:
 Default path:
 
 1. Run the dedicated dream runner:
-`python .agents/skills/local-kb-retrieve/scripts/kb_dream.py --json --sleep-cooldown-minutes 45`
+`python .agents/skills/local-kb-retrieve/scripts/kb_dream.py --json --sleep-cooldown-minutes 0`
 2. Inspect the generated artifacts under `kb/history/dream/<run-id>/`.
 3. Report:
    - run id
@@ -33,7 +33,7 @@ Default path:
 
 Guardrails:
 
-- skip the run if recent sleep maintenance may still overlap
+- skip the run if Sleep or Architect is currently running
 - retrieve prior Dream-process experience before selecting experiments
 - select exactly one executable experiment
 - require `experiment_design`, `validation_plan`, `success_criteria`, `failure_criteria`, `safety_tier`, and `rollback_plan` before execution

@@ -28,7 +28,7 @@ Out of scope: trusted-card rewrites, candidate promotion, card content merge/spl
 1. Write a visible Architect execution plan before the first stateful command, with every checkpoint present and status-tracked.
 2. Run Architect self-preflight against `system/knowledge-library/maintenance`.
 3. Run:
-   `python .agents/skills/local-kb-retrieve/scripts/kb_architect.py --json --sleep-cooldown-minutes 60 --dream-cooldown-minutes 20`
+   `python .agents/skills/local-kb-retrieve/scripts/kb_architect.py --json --sleep-cooldown-minutes 0 --dream-cooldown-minutes 0`
 4. Inspect generated artifacts under `kb/history/architecture/runs/<run-id>/`.
 5. Inspect `kb/history/architecture/proposal_queue.json`.
 6. Use only Evidence, Impact, and Safety for mechanism proposal review.

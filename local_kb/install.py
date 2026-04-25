@@ -75,7 +75,10 @@ SLEEP_AUTOMATION_PROMPT = (
     "Use $kb-sleep-maintenance to run the repository's local KB sleep-maintenance pass for this workspace. "
     "Use PROJECT_SPEC.md, "
     "docs/maintenance_runbook.md, and .agents/skills/local-kb-retrieve/MAINTENANCE_PROMPT.md as the "
-    "authoritative guides. First write a visible sleep execution plan with checkpoint statuses, start with a "
+    "authoritative guides. Before the first stateful command, run "
+    "`python .agents/skills/local-kb-retrieve/scripts/kb_lane_status.py --lane kb-sleep --status running "
+    "--require-clear --json`; if another core maintenance lane is running, stop as a successful no-op. "
+    "First write a visible sleep execution plan with checkpoint statuses, start with a "
     "sleep self-preflight search against system/knowledge-library/maintenance, then run proposal mode, inspect "
     "taxonomy and route gaps, run a mandatory similar-card merge checkpoint, run a mandatory overloaded-card "
     "split checkpoint, run an organization Skill bundle consolidation checkpoint that groups imported read-only "
@@ -91,7 +94,9 @@ SLEEP_AUTOMATION_PROMPT = (
     "through every safe checkpoint instead of stopping after a short proposal, attempt supported low-risk repairs "
     "and rerun the relevant validation when a command exposes a fixable issue, run a final sleep postflight check, "
     "append one structured maintenance observation when the pass exposed a reusable lesson or process hazard, stop "
-    "after that final observation instead of recursively consolidating it, and report the run id, execution plan "
+    "after that final observation instead of recursively consolidating it, then run "
+    "`python .agents/skills/local-kb-retrieve/scripts/kb_lane_status.py --lane kb-sleep --status completed --json`, "
+    "and report the run id, execution plan "
     "status, self-preflight entries, reviewed observation counts, candidates created, route adjustments or concerns, "
     "semantic-review decisions applied or skipped, translations updated or still missing, validations run, "
     "repaired or proposal-only issues, maintenance decisions, "
@@ -103,7 +108,7 @@ DREAM_AUTOMATION_PROMPT = (
     "Use $kb-dream-pass to run one bounded local KB dream-mode pass for this workspace. "
     "Use PROJECT_SPEC.md, docs/dream_runbook.md, "
     "and .agents/skills/local-kb-retrieve/DREAM_PROMPT.md as the authoritative guides. Run "
-    "`python .agents/skills/local-kb-retrieve/scripts/kb_dream.py --json --sleep-cooldown-minutes 45`, "
+    "`python .agents/skills/local-kb-retrieve/scripts/kb_dream.py --json --sleep-cooldown-minutes 0`, "
     "inspect the generated preflight, plan, opportunity, experiment, execution-plan, "
     "and report artifacts, require exactly one executable experiment with experiment design, validation plan, "
     "safety tier, rollback plan, and explicit success/failure criteria before execution, keep write-back "
@@ -120,8 +125,8 @@ ARCHITECT_AUTOMATION_PROMPT = (
     "authoritative guides. Before the first stateful command, write a visible Architect execution plan with "
     "checkpoint statuses and include every required checkpoint; do not skip any checkpoint silently. Start with "
     "Architect self-preflight against system/knowledge-library/maintenance, then run "
-    "`python .agents/skills/local-kb-retrieve/scripts/kb_architect.py --json --sleep-cooldown-minutes 60 "
-    "--dream-cooldown-minutes 20`, inspect the generated plan, preflight, signals, proposals, decisions, "
+    "`python .agents/skills/local-kb-retrieve/scripts/kb_architect.py --json --sleep-cooldown-minutes 0 "
+    "--dream-cooldown-minutes 0`, inspect the generated plan, preflight, signals, proposals, decisions, "
     "execution-plan, report, and proposal_queue artifacts, use only Evidence, Impact, and Safety for proposal "
     "review, keep statuses limited to new, watching, ready-for-patch, ready-for-apply, applied, rejected, and "
     "superseded, do not use a human-review status, keep long-observation items as watching, keep the scope to "
@@ -1050,6 +1055,13 @@ def build_installation_check(
         issues_for_skill: list[str] = []
         if not source_skill_path.exists():
             issues_for_skill.append(f"Repository maintenance skill source is missing: {source_skill_path}")
+            source_skill_text = ""
+        else:
+            try:
+                source_skill_text = source_skill_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                issues_for_skill.append(f"Repository maintenance skill source could not be read: {exc}")
+                source_skill_text = ""
         if not install_skill_path.exists():
             issues_for_skill.append(f"Installed maintenance skill file is missing: {install_skill_path}")
             skill_text = ""
@@ -1076,6 +1088,11 @@ def build_installation_check(
             if str(spec["prompt_marker"]) not in skill_text:
                 issues_for_skill.append(
                     f"Installed maintenance skill {skill_name} is missing prompt marker {spec['prompt_marker']}."
+                )
+            if source_skill_text and skill_text != source_skill_text:
+                issues_for_skill.append(
+                    f"Installed maintenance skill {skill_name} differs from repository source. "
+                    "Re-run the installer to refresh it."
                 )
         if skill_openai_text:
             if "allow_implicit_invocation: false" not in skill_openai_text:
@@ -1165,6 +1182,10 @@ def build_installation_check(
                     f"Automation {expected['id']} should target cwds={expected['cwds']}."
                 )
             prompt_text = str(payload.get("prompt", "") or "")
+            if prompt_text != expected["prompt"]:
+                issues_for_automation.append(
+                    f"Automation {expected['id']} prompt differs from the repository spec."
+                )
             expected_skill_name = str(spec.get("skill_name", "") or "")
             if expected_skill_name and f"${expected_skill_name}" not in prompt_text:
                 issues_for_automation.append(
@@ -1203,6 +1224,8 @@ def build_installation_check(
                 for marker in (
                     "visible sleep execution plan",
                     "checkpoint statuses",
+                    "kb_lane_status.py",
+                    "--require-clear",
                     "sleep self-preflight",
                     "system/knowledge-library/maintenance",
                     "mandatory similar-card merge checkpoint",
@@ -1215,6 +1238,7 @@ def build_installation_check(
                     "rerun the relevant validation",
                     "sleep postflight check",
                     "structured maintenance observation",
+                    "status completed",
                     "recursively consolidating",
                 ):
                     if marker not in prompt_text:

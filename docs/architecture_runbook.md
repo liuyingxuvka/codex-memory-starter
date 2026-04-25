@@ -2,6 +2,8 @@
 
 This runbook defines the `kb-architect` mechanism-maintenance lane. It runs after Sleep and Dream and controls how the KB system improves its own operating machinery without taking over card-content maintenance.
 
+The default local cadence is Sleep at 12:00, Dream at 13:00, and Architect at 14:00. Each core maintenance lane checks that the other two lanes are not running before it starts, so the schedule does not need a post-completion cooldown.
+
 `PROJECT_SPEC.md` remains authoritative. If this runbook and the spec disagree, follow the spec and simplify this runbook.
 
 The repository installer is expected to provision a repo-managed `KB Architect` cron automation under `$CODEX_HOME/automations/`. Re-running `python scripts/install_codex_kb.py --json` on another machine should refresh that schedule automatically. The automation spec should keep model selection policy-based: strongest available model plus deepest supported reasoning, resolved during install rather than pinned to a specific model version.
@@ -101,8 +103,8 @@ Run one Architect pass manually:
 
 ```powershell
 python .agents/skills/local-kb-retrieve/scripts/kb_architect.py `
-  --sleep-cooldown-minutes 60 `
-  --dream-cooldown-minutes 20 `
+  --sleep-cooldown-minutes 0 `
+  --dream-cooldown-minutes 0 `
   --json
 ```
 

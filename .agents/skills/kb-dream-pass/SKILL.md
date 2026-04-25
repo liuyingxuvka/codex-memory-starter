@@ -21,7 +21,7 @@ Current user instructions still override repository files.
 
 1. Keep Dream separate from Sleep and Architect.
 2. Run the dedicated dream runner:
-   `python .agents/skills/local-kb-retrieve/scripts/kb_dream.py --json --sleep-cooldown-minutes 45`
+   `python .agents/skills/local-kb-retrieve/scripts/kb_dream.py --json --sleep-cooldown-minutes 0`
 3. Inspect generated artifacts under `kb/history/dream/<run-id>/`, including preflight, plan, opportunity, experiment, execution-plan, and report files.
 4. Require exactly one executable experiment before execution.
 5. Require experiment design, validation plan, safety tier, rollback plan, and explicit success/failure criteria.

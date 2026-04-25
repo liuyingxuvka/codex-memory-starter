@@ -22,7 +22,7 @@ def main() -> None:
     parser.add_argument("--repo-root", default="auto")
     parser.add_argument("--run-id", default="")
     parser.add_argument("--max-events", type=int, default=0)
-    parser.add_argument("--sleep-cooldown-minutes", type=int, default=45)
+    parser.add_argument("--sleep-cooldown-minutes", type=int, default=0)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 

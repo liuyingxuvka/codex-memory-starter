@@ -1013,11 +1013,13 @@ There is no human-review status. High-risk or uncertain proposals remain under l
 
 The daily Architect pass should not be forced to invent a new proposal. It must maintain the queue every day, which can mean creating, merging, upgrading, applying, rejecting, superseding, or explicitly doing nothing when no signal crosses the threshold.
 
-The default cadence is after Sleep and Dream, for example:
+The default cadence is after Sleep and Dream, with lane-status checks preventing overlap:
 
 - `KB Sleep`: 12:00
 - `KB Dream`: 13:00
 - `KB Architect`: 14:00
+
+Each core maintenance lane should mark itself running before stateful work and completed after it finishes. A lane should skip when either of the other two core lanes is still running. This avoids overlap without forcing arbitrary post-completion cooldown windows.
 
 The installer should provision all three repository-managed maintenance skills (`kb-sleep-maintenance`, `kb-dream-pass`, and `kb-architect-pass`) plus all three repository-managed automations, and the install check should verify all six. The maintenance skills are explicit entry points for scheduled or manual maintenance; they should remain narrow and should not enable broad implicit invocation.
 
