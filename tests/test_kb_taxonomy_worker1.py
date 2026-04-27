@@ -3,16 +3,17 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
-from local_kb.store import resolve_repo_root
 from local_kb.taxonomy import (
     build_taxonomy_gap_report,
     build_taxonomy_view,
     derive_route_counts,
     load_taxonomy,
 )
+from tests.kb_fixtures import write_sample_kb_repo
 
 
 SCRIPT_PATH = (
@@ -27,7 +28,12 @@ SCRIPT_PATH = (
 
 class KbTaxonomyTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.repo_root = resolve_repo_root(Path(__file__).resolve().parents[1])
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo_root = Path(self._tmp.name)
+        write_sample_kb_repo(self.repo_root)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
 
     def test_loads_minimal_explicit_taxonomy_covering_current_sample_routes(self) -> None:
         taxonomy = load_taxonomy(self.repo_root)

@@ -1,19 +1,28 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
 
 import yaml
 
 from local_kb.search import render_search_payload, search_entries
+from tests.kb_fixtures import write_sample_kb_repo
 
 
 class EvalCasesRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.repo_root = Path(__file__).resolve().parents[1]
-        cls.eval_cases_path = cls.repo_root / "tests" / "eval_cases.yaml"
+        project_root = Path(__file__).resolve().parents[1]
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.repo_root = Path(cls._tmp.name)
+        write_sample_kb_repo(cls.repo_root)
+        cls.eval_cases_path = project_root / "tests" / "eval_cases.yaml"
         cls.eval_cases = yaml.safe_load(cls.eval_cases_path.read_text(encoding="utf-8")) or []
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
 
     def test_eval_cases_top_result_matches_expected_ids(self) -> None:
         self.assertGreater(len(self.eval_cases), 0, "eval_cases.yaml should define at least one retrieval case")

@@ -20,7 +20,7 @@ from local_kb.desktop_app import (
 )
 from local_kb.settings import ORGANIZATION_MODE, PERSONAL_MODE
 from local_kb.i18n import ZH_CN
-from local_kb.store import resolve_repo_root, write_yaml_file
+from local_kb.store import write_yaml_file
 from local_kb.ui_data import (
     build_card_detail_payload,
     build_overview_payload,
@@ -29,11 +29,17 @@ from local_kb.ui_data import (
     navigation_card_count,
     navigation_children,
 )
+from tests.kb_fixtures import write_sample_kb_repo
 
 
 class KbDesktopUiDataTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.repo_root = resolve_repo_root(Path(__file__).resolve().parents[1])
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo_root = Path(self._tmp.name)
+        write_sample_kb_repo(self.repo_root)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
 
     def test_overview_counts_entries_and_taxonomy_gaps(self) -> None:
         payload = build_overview_payload(self.repo_root)

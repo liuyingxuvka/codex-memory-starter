@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.2 - 2026-04-27
+
+- Fixed GitHub Actions coverage so retrieval, taxonomy, and desktop UI tests use deterministic fixture KB data instead of depending on ignored local candidate cards.
+- Kept release validation reproducible on clean checkouts while preserving the public repository boundary that excludes live `kb/candidates` and `kb/history` data.
+
 ## v0.4.1 - 2026-04-27
 
 - Added public repository hygiene files, including the MIT license, contribution guide, and a GitHub Actions workflow that runs tests plus installer and desktop checks.
