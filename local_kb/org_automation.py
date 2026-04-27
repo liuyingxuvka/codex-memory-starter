@@ -25,6 +25,15 @@ from local_kb.store import load_yaml_file
 
 
 ORG_AUTOMATION_ROUTE = "system/knowledge-library/organization"
+ORG_LANE_POLICY = {
+    "incoming_lane": "kb/imports",
+    "exchange_surface": "kb/main",
+    "local_download_primary_path": "kb/main",
+    "local_download_excluded_paths": ["kb/imports"],
+    "contribution_writes": ["kb/imports"],
+    "maintenance_moves_reviewed_cards_to": "kb/main",
+    "legacy_compatibility_paths": ["kb/trusted", "kb/candidates"],
+}
 
 
 def _preflight(repo_root: Path, *, query: str) -> dict[str, Any]:
@@ -396,7 +405,7 @@ def run_organization_contribution(
     organization_id = str(source.get("organization_id") or "").strip()
     preflight = _preflight(
         repo_root,
-        query="organization contribution outbox card upload content hash skill dependency",
+        query="organization contribution outbox upload imports incoming lane main exchange surface content hash skill dependency",
     )
     outbox = build_organization_outbox(
         repo_root,
@@ -464,7 +473,7 @@ def run_organization_contribution(
                     base_branch=base_branch,
                     title="Add organization KB import proposals",
                     body=(
-                        "This PR uploads local trusted experience as candidate import proposals. "
+                        "This PR uploads local trusted experience to the organization import lane. "
                         "Organization maintenance will decide what enters main."
                     ),
                     labels=auto_merge_labels,
@@ -502,9 +511,9 @@ def run_organization_contribution(
                 f"pushed={bool((branch_result.get('push') or {}).get('pushed'))}"
             ),
             comment="Organization contribution automation synchronized the organization mirror, inspected local shareable cards, and uploaded eligible proposals to the organization import lane when possible.",
-            action_taken="Read desktop organization settings, synchronized the organization source, ran content-hash-gated organization outbox export, prepared an import branch, and pushed it when enabled.",
+            action_taken="Read desktop organization settings, synchronized the organization source, ran content-hash-gated organization outbox export, prepared an import branch under kb/imports, and pushed it when enabled.",
             observed_result=f"Outbox created {outbox.get('created_count', 0)} proposal(s).",
-            operational_use="Use this audit event to confirm scheduled contribution automation is syncing first, avoiding repeated exchanged hashes, and uploading only candidate/import proposals.",
+            operational_use="Use this audit event to confirm scheduled contribution automation is syncing first, avoiding repeated exchanged hashes, writing only imports, and leaving main movement to organization maintenance.",
             agent_name="kb-organization-contribute",
         )
 
@@ -519,6 +528,7 @@ def run_organization_contribution(
         "organization_id": organization_id,
         "source": source,
         "sync": sync_result,
+        "lane_policy": ORG_LANE_POLICY,
         "preflight": preflight,
         "outbox": outbox,
         "branch": branch_result,
@@ -589,7 +599,7 @@ def run_organization_maintenance(
     organization_id = str(source.get("organization_id") or "").strip()
     preflight = _preflight(
         repo_root,
-        query="organization maintenance review candidates skills merge split auto merge",
+        query="organization maintenance review imports main exchange surface legacy compatibility skills merge split auto merge",
     )
     report = build_organization_maintenance_report(
         Path(str(source.get("path") or "")),
@@ -619,16 +629,18 @@ def run_organization_maintenance(
             task_summary="Organization KB maintenance automation",
             preflight=preflight,
             outcome=(
-                f"candidate_count={report.get('candidate_count', 0)} "
+                f"main_active_count={report.get('main_active_count', 0)} "
+                f"imports_count={report.get('imports_count', 0)} "
+                f"legacy_compatibility={bool(report.get('legacy_compatibility'))} "
                 f"skill_count={report.get('skill_count', 0)} "
                 f"recommendations={len(report.get('recommendations', []))} "
                 f"sleep_selected={((report.get('cleanup') or {}).get('review') or {}).get('selected_count', 0)} "
                 f"applied={applied_count} pushed={bool((maintenance_branch.get('push') or {}).get('pushed'))}"
             ),
-            comment="Organization maintenance automation inspected the validated organization mirror, selected cleanup proposals, and directly applied organization Sleep-style actions with audit evidence.",
-            action_taken="Read desktop organization maintenance settings, validated participation, inspected the organization KB mirror with the organization maintenance worldview, selected cleanup proposals, and applied selected actions.",
+            comment="Organization maintenance automation inspected the validated organization mirror, including the imports incoming lane and main exchange surface, then selected cleanup proposals and applied organization Sleep-style actions with audit evidence.",
+            action_taken="Read desktop organization maintenance settings, validated participation, inspected the organization KB mirror with the organization maintenance worldview, selected cleanup proposals, and moved reviewed material toward main when selected actions allowed it.",
             observed_result=f"Report recommendations: {', '.join(report.get('recommendations', [])) or 'none'}.",
-            operational_use="Use this audit event to confirm scheduled organization maintenance runs only on opted-in machines and closes the Sleep decision/apply loop for supported cleanup actions.",
+            operational_use="Use this audit event to confirm scheduled organization maintenance runs only on opted-in machines, treats legacy trusted/candidates as compatibility paths, and closes the imports-to-main decision/apply loop for supported cleanup actions.",
             agent_name="kb-organization-maintenance",
         )
 
@@ -651,6 +663,7 @@ def run_organization_maintenance(
         "source": source,
         "participation": participation,
         "sync": sync_result,
+        "lane_policy": ORG_LANE_POLICY,
         "preflight": preflight,
         "report": report,
         "maintenance_branch": maintenance_branch,

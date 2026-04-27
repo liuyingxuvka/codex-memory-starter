@@ -17,7 +17,7 @@ from local_kb.consolidate_events import (
 from local_kb.feedback import build_observation, record_observation
 from local_kb.history import build_history_event, record_history_event
 from local_kb.maintenance_lanes import acquire_lane_lock, build_lane_guard, release_lane_lock, write_lane_status
-from local_kb.search import render_search_payload, search_entries
+from local_kb.search import render_search_payload, search_entries, search_loaded_entries
 from local_kb.store import candidate_dir, history_events_path, load_entries, write_yaml_file
 from local_kb.taxonomy import build_taxonomy_gap_report
 
@@ -31,7 +31,10 @@ EXPERIMENTS_FILENAME = "experiments.json"
 EXECUTION_PLAN_FILENAME = "execution_plan.json"
 REPORT_FILENAME = "report.json"
 SANDBOX_DIRNAME = "sandbox"
-SANDBOX_EXPERIMENT_MODE = "retrieval-ab"
+SANDBOX_MODE_RETRIEVAL_AB = "retrieval-ab"
+SANDBOX_MODE_SCENARIO_REPLAY = "scenario-replay"
+SANDBOX_EXPERIMENT_MODE = SANDBOX_MODE_RETRIEVAL_AB
+DREAM_SANDBOX_EXPERIMENT_MODES = {SANDBOX_MODE_RETRIEVAL_AB, SANDBOX_MODE_SCENARIO_REPLAY}
 DREAM_SLEEP_HANDOFF_CLASSIFICATIONS = {"validated", "adjacent-support", "candidate-backlog"}
 DREAM_SLEEP_HANDOFF_EVIDENCE_GRADES = {"strong", "moderate"}
 
@@ -90,7 +93,8 @@ def _load_prior_successful_sandbox_keys(repo_root: Path, *, current_run_id: str)
         for experiment in payload.get("experiments", []):
             if not isinstance(experiment, dict):
                 continue
-            if experiment.get("sandbox_mode") != SANDBOX_EXPERIMENT_MODE:
+            sandbox_mode = str(experiment.get("sandbox_mode", "") or "")
+            if sandbox_mode not in DREAM_SANDBOX_EXPERIMENT_MODES:
                 continue
             validation = experiment.get("validation_result", {})
             status = str(validation.get("status", "") or "") if isinstance(validation, dict) else ""
@@ -102,6 +106,7 @@ def _load_prior_successful_sandbox_keys(repo_root: Path, *, current_run_id: str)
                 "run_id": run_id,
                 "route_ref": str(experiment.get("route_ref", "") or ""),
                 "kind": str(experiment.get("kind", "") or ""),
+                "sandbox_mode": sandbox_mode,
                 "evidence_grade": grade,
                 "validation_status": status,
                 "sandbox_path": str(experiment.get("sandbox_path", "") or ""),
@@ -214,6 +219,24 @@ def _entry_validation_query(entry: Any) -> str:
         str(use_block.get("guidance", "") or "").strip(),
     ]
     return " ".join(part for part in parts if part) or _route_title(_entry_route(entry))
+
+
+def _block_text(value: Any, preferred_keys: tuple[str, ...] = ()) -> str:
+    if isinstance(value, dict):
+        parts: list[str] = []
+        keys = preferred_keys or tuple(value.keys())
+        for key in keys:
+            item = value.get(key, "")
+            if isinstance(item, (dict, list)):
+                item_text = _block_text(item)
+            else:
+                item_text = str(item or "").strip()
+            if item_text:
+                parts.append(item_text)
+        return " ".join(parts).strip()
+    if isinstance(value, list):
+        return " ".join(_block_text(item) for item in value if _block_text(item)).strip()
+    return str(value or "").strip()
 
 
 def _predictive_preview_available(action: dict[str, Any]) -> bool:
@@ -422,6 +445,11 @@ def build_entry_validation_opportunities(repo_root: Path, entries: list[Any]) ->
                 "route_title": _route_title(route),
                 "source_entry_id": str(data.get("id", "") or ""),
                 "source_entry_path": relative_repo_path(repo_root, entry.path),
+                "source_entry_title": str(data.get("title", "") or "").strip(),
+                "source_entry_scenario": _block_text(data.get("if", {}), ("notes", "scenario", "conditions")),
+                "source_entry_action": _block_text(data.get("action", {}), ("description", "action")),
+                "source_entry_predicted_result": _block_text(data.get("predict", {}), ("expected_result", "result")),
+                "source_entry_guidance": _block_text(data.get("use", {}), ("guidance", "notes")),
                 "entry_status": status,
                 "entry_confidence": confidence,
                 "validation_query": query,
@@ -473,8 +501,8 @@ def _execution_contract(opportunity: dict[str, Any]) -> dict[str, Any]:
         permitted_write_back = "history-only"
     elif kind == "entry-validation":
         safety_tier = "read-only"
-        experiment_design = "Validate an existing low-confidence or candidate card against route-local retrieval evidence."
-        validation_plan = "Search with the card route and validation query, then classify the result from exact or adjacent local evidence."
+        experiment_design = "Replay a historical or card-derived task scenario with and without the tested candidate or low-confidence card in local search."
+        validation_plan = "Compare the no-tested-card baseline against candidate-augmented retrieval, then decide whether the card improves task choice or is ready for Sleep semantic review."
         rollback_plan = "No rollback needed because the experiment writes no files beyond append-only history."
         permitted_write_back = "history-only"
     elif kind == "taxonomy-gap":
@@ -551,15 +579,25 @@ def _is_valuable_experiment(opportunity: dict[str, Any]) -> bool:
     return kind in {"entry-validation", "taxonomy-gap"}
 
 
+def _sandbox_mode_for_opportunity(opportunity: dict[str, Any]) -> str:
+    explicit_mode = str(opportunity.get("sandbox_mode", "") or "").strip()
+    if explicit_mode in DREAM_SANDBOX_EXPERIMENT_MODES:
+        return explicit_mode
+    if str(opportunity.get("kind", "") or "") == "entry-validation":
+        return SANDBOX_MODE_SCENARIO_REPLAY
+    return SANDBOX_MODE_RETRIEVAL_AB
+
+
 def _opportunity_batch_key(opportunity: dict[str, Any]) -> str:
     kind = str(opportunity.get("kind", "") or "")
     route_ref = str(opportunity.get("route_ref", "") or "")
+    sandbox_mode = _sandbox_mode_for_opportunity(opportunity)
     if kind == "entry-validation":
-        return f"{kind}:{route_ref}"
+        return f"{kind}:{sandbox_mode}:{route_ref}"
     if kind == "route-candidate":
         mode = str(opportunity.get("candidate_creation_mode", "") or "")
-        return f"{kind}:{mode}:{route_ref}"
-    return f"{kind}:{route_ref}"
+        return f"{kind}:{sandbox_mode}:{mode}:{route_ref}"
+    return f"{kind}:{sandbox_mode}:{route_ref}"
 
 
 def _select_valuable_experiments(
@@ -590,10 +628,12 @@ def _select_valuable_experiments(
 
 
 def _selected_experiment_plan(item: dict[str, Any], sequence_index: int) -> dict[str, Any]:
+    sandbox_mode = _sandbox_mode_for_opportunity(item)
     return {
         "sequence_index": sequence_index,
         "route_ref": item["route_ref"],
         "kind": item["kind"],
+        "candidate_creation_mode": str(item.get("candidate_creation_mode", "") or ""),
         "hypothesis": item["hypothesis"],
         "experiment_design": item["experiment_design"],
         "validation_plan": item["validation_plan"],
@@ -602,7 +642,7 @@ def _selected_experiment_plan(item: dict[str, Any], sequence_index: int) -> dict
         "safety_tier": item["safety_tier"],
         "rollback_plan": item["rollback_plan"],
         "permitted_write_back": item["permitted_write_back"],
-        "sandbox_mode": SANDBOX_EXPERIMENT_MODE,
+        "sandbox_mode": sandbox_mode,
         "opportunity_score": item["opportunity_score"],
         "executability_score": item["executability_score"],
     }
@@ -618,11 +658,7 @@ def _validation_query(opportunity: dict[str, Any]) -> str:
     return opportunity.get("route_title", "route exploration")
 
 
-def _search_context(repo_root: Path, route_ref: str, query: str) -> dict[str, Any]:
-    search_results = render_search_payload(
-        search_entries(repo_root, query=query, path_hint=route_ref, top_k=5),
-        repo_root,
-    )
+def _search_context_from_results(route_ref: str, query: str, search_results: list[dict[str, Any]]) -> dict[str, Any]:
     route = parse_route_segments(route_ref)
     parent = route[:-1]
     exact_route_hits = 0
@@ -642,6 +678,22 @@ def _search_context(repo_root: Path, route_ref: str, query: str) -> dict[str, An
         "sibling_route_hit_count": sibling_route_hits,
         "results": search_results,
     }
+
+
+def _search_context_from_entries(repo_root: Path, entries: list[Any], route_ref: str, query: str) -> dict[str, Any]:
+    search_results = render_search_payload(
+        search_loaded_entries(entries, query=query, path_hint=route_ref, top_k=5),
+        repo_root,
+    )
+    return _search_context_from_results(route_ref, query, search_results)
+
+
+def _search_context(repo_root: Path, route_ref: str, query: str) -> dict[str, Any]:
+    search_results = render_search_payload(
+        search_entries(repo_root, query=query, path_hint=route_ref, top_k=5),
+        repo_root,
+    )
+    return _search_context_from_results(route_ref, query, search_results)
 
 
 def _sandbox_allowed_writes(repo_root: Path, run_id: str) -> list[str]:
@@ -713,6 +765,204 @@ def _summarize_search_variant(name: str, context: dict[str, Any]) -> dict[str, A
     }
 
 
+def _search_result_rank(context: dict[str, Any], entry_id: str) -> int:
+    if not entry_id:
+        return 0
+    for index, item in enumerate(context.get("results", []), start=1):
+        if str(item.get("id", "") or "") == entry_id:
+            return index
+    return 0
+
+
+def _top_choice_summary(context: dict[str, Any]) -> str:
+    results = context.get("results", [])
+    if not results:
+        return "No local KB choice was returned."
+    top = results[0]
+    entry_id = str(top.get("id", "") or "unknown")
+    route = "/".join(parse_route_segments(top.get("domain_path", []))) or "unrouted"
+    status = str(top.get("status", "") or "unknown")
+    return f"Top choice was {entry_id} on {route} with status {status}."
+
+
+def _candidate_card_snapshot(opportunity: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "entry_id": str(opportunity.get("source_entry_id", "") or ""),
+        "title": str(opportunity.get("source_entry_title", "") or ""),
+        "entry_status": str(opportunity.get("entry_status", "") or ""),
+        "entry_confidence": opportunity.get("entry_confidence", ""),
+        "entry_path": str(opportunity.get("source_entry_path", "") or ""),
+        "route_ref": str(opportunity.get("route_ref", "") or ""),
+        "scenario": str(opportunity.get("source_entry_scenario", "") or ""),
+        "action": str(opportunity.get("source_entry_action", "") or ""),
+        "predicted_result": str(opportunity.get("source_entry_predicted_result", "") or ""),
+        "guidance": str(opportunity.get("source_entry_guidance", "") or ""),
+    }
+
+
+def _event_route_ref(event: dict[str, Any]) -> str:
+    target = event.get("target", {}) if isinstance(event.get("target"), dict) else {}
+    route = parse_route_segments(target.get("route_hint", []))
+    return "/".join(route)
+
+
+def _matching_history_scenarios(
+    history_events: list[dict[str, Any]],
+    *,
+    route_ref: str,
+    source_entry_id: str,
+    limit: int = 3,
+) -> list[dict[str, str]]:
+    route = parse_route_segments(route_ref)
+    matched: list[dict[str, str]] = []
+    for event in reversed(history_events):
+        if not isinstance(event, dict):
+            continue
+        target = event.get("target", {}) if isinstance(event.get("target"), dict) else {}
+        event_route = parse_route_segments(target.get("route_hint", []))
+        entry_ids = [str(item) for item in target.get("entry_ids", [])] if isinstance(target.get("entry_ids", []), list) else []
+        if source_entry_id not in entry_ids and event_route != route:
+            continue
+        context = event.get("context", {}) if isinstance(event.get("context"), dict) else {}
+        predictive = context.get("predictive_observation", {}) if isinstance(context.get("predictive_observation"), dict) else {}
+        matched.append(
+            {
+                "event_id": str(event.get("event_id", "") or ""),
+                "route_ref": _event_route_ref(event),
+                "task_summary": str(target.get("task_summary", "") or ""),
+                "scenario": str(predictive.get("scenario", "") or ""),
+                "action_taken": str(predictive.get("action_taken", "") or ""),
+                "observed_result": str(predictive.get("observed_result", "") or ""),
+                "suggested_action": str(context.get("suggested_action", "") or ""),
+            }
+        )
+        if len(matched) >= limit:
+            break
+    return list(reversed(matched))
+
+
+def _scenario_replay_query(opportunity: dict[str, Any], history_scenarios: list[dict[str, str]]) -> str:
+    candidate = _candidate_card_snapshot(opportunity)
+    history_text = " ".join(
+        part
+        for scenario in history_scenarios[:2]
+        for part in (
+            scenario.get("task_summary", ""),
+            scenario.get("scenario", ""),
+            scenario.get("action_taken", ""),
+        )
+        if str(part or "").strip()
+    )
+    candidate_text = " ".join(
+        str(candidate.get(key, "") or "").strip()
+        for key in ("title", "scenario", "action", "predicted_result", "guidance")
+        if str(candidate.get(key, "") or "").strip()
+    )
+    return history_text or candidate_text or _validation_query(opportunity)
+
+
+def _scenario_replay_decision(
+    *,
+    opportunity: dict[str, Any],
+    baseline_context: dict[str, Any],
+    candidate_context: dict[str, Any],
+    history_scenarios: list[dict[str, str]],
+) -> dict[str, Any]:
+    source_entry_id = str(opportunity.get("source_entry_id", "") or "")
+    candidate_rank = _search_result_rank(candidate_context, source_entry_id)
+    baseline_exact_hits = int(baseline_context.get("exact_route_hit_count", 0) or 0)
+    candidate_exact_hits = int(candidate_context.get("exact_route_hit_count", 0) or 0)
+    scenario_count = len(history_scenarios)
+    candidate_snapshot = _candidate_card_snapshot(opportunity)
+    if any(str(candidate_snapshot.get(key, "") or "").strip() for key in ("scenario", "action", "predicted_result")):
+        scenario_count += 1
+
+    candidate_improves_choice = bool(candidate_rank and baseline_exact_hits == 0)
+    candidate_competes_for_choice = bool(candidate_rank and candidate_rank <= 3)
+    if candidate_improves_choice and candidate_rank == 1 and scenario_count:
+        evidence_grade = "strong"
+    elif candidate_improves_choice or candidate_competes_for_choice:
+        evidence_grade = "moderate"
+    elif candidate_rank:
+        evidence_grade = "weak"
+    else:
+        evidence_grade = "none"
+    validation_status = _sandbox_validation_status(evidence_grade)
+
+    if candidate_improves_choice:
+        next_step = (
+            "semantic-review the tested candidate for strengthening, narrowing, or promotion only if later "
+            "real-task evidence agrees; the replay shows it fills a task-choice gap."
+        )
+    elif candidate_competes_for_choice:
+        next_step = (
+            "semantic-review the tested candidate against the existing top choice and decide whether Sleep "
+            "should merge, narrow, rewrite, or keep watching it."
+        )
+    elif candidate_rank:
+        next_step = "keep watching the tested candidate; it appeared in replay but did not materially change the task choice."
+    else:
+        next_step = "do not strengthen the tested candidate from this replay; consider rewrite or rejection if later evidence stays weak."
+
+    baseline_summary = _top_choice_summary(baseline_context)
+    candidate_summary = (
+        f"Tested candidate {source_entry_id or 'unknown'} ranked #{candidate_rank}."
+        if candidate_rank
+        else f"Tested candidate {source_entry_id or 'unknown'} did not appear in the top replay results."
+    )
+    reason = (
+        f"Scenario replay graded {evidence_grade}: baseline exact route hits={baseline_exact_hits}, "
+        f"candidate-augmented exact route hits={candidate_exact_hits}, candidate rank={candidate_rank or 'not ranked'}."
+    )
+    return {
+        "candidate_entry_id": source_entry_id,
+        "candidate_rank": candidate_rank,
+        "baseline_exact_route_hit_count": baseline_exact_hits,
+        "candidate_augmented_exact_route_hit_count": candidate_exact_hits,
+        "candidate_improves_task_choice": candidate_improves_choice,
+        "candidate_competes_for_task_choice": candidate_competes_for_choice,
+        "sleep_review_ready": validation_status == "passed",
+        "evidence_grade": evidence_grade,
+        "validation_status": validation_status,
+        "baseline_summary": baseline_summary,
+        "candidate_summary": candidate_summary,
+        "reason": reason,
+        "sleep_next_step": next_step,
+    }
+
+
+def _scenario_replay_handoff(opportunity: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any]:
+    route_title = str(opportunity.get("route_title", "") or "the route")
+    source_entry_id = str(opportunity.get("source_entry_id", "") or "the tested card")
+    rank_value = decision.get("candidate_rank") or 0
+    rank_text = f"#{rank_value}" if rank_value else "not ranked"
+    sleep = (
+        f"Sleep should inspect scenario-replay for {source_entry_id} on {route_title}: candidate rank {rank_text}, "
+        f"baseline exact hits={decision.get('baseline_exact_route_hit_count', 0)}, "
+        f"candidate exact hits={decision.get('candidate_augmented_exact_route_hit_count', 0)}. "
+        f"Next step: {decision.get('sleep_next_step', '')}"
+    )
+    architect = (
+        "No Architect action from this scenario replay unless repeated replays show Dream selection, search scoring, "
+        "or sandbox reporting needs a mechanism change."
+    )
+    return {
+        "sleep": sleep,
+        "architect": architect,
+        "detail": {
+            "candidate_entry_id": source_entry_id,
+            "route_ref": str(opportunity.get("route_ref", "") or ""),
+            "candidate_rank": decision.get("candidate_rank", 0),
+            "candidate_improves_task_choice": bool(decision.get("candidate_improves_task_choice", False)),
+            "candidate_competes_for_task_choice": bool(decision.get("candidate_competes_for_task_choice", False)),
+            "sleep_review_ready": bool(decision.get("sleep_review_ready", False)),
+            "sleep_next_step": str(decision.get("sleep_next_step", "") or ""),
+            "baseline_summary": str(decision.get("baseline_summary", "") or ""),
+            "candidate_summary": str(decision.get("candidate_summary", "") or ""),
+        },
+    }
+
+
 def _run_retrieval_ab_sandbox(
     repo_root: Path,
     *,
@@ -777,6 +1027,146 @@ def _run_retrieval_ab_sandbox(
         "sleep_handoff": handoff["sleep"],
         "architect_handoff": handoff["architect"],
     }
+
+
+def _run_scenario_replay_sandbox(
+    repo_root: Path,
+    *,
+    run_id: str,
+    generated_at: str,
+    sequence_index: int,
+    opportunity: dict[str, Any],
+    classification: str,
+    history_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    source_entry_id = str(opportunity.get("source_entry_id", "") or "")
+    route_ref = str(opportunity.get("route_ref", "") or "")
+    history_scenarios = _matching_history_scenarios(
+        history_events,
+        route_ref=route_ref,
+        source_entry_id=source_entry_id,
+    )
+    replay_query = _scenario_replay_query(opportunity, history_scenarios)
+    all_entries = load_entries(repo_root)
+    baseline_entries = [
+        entry
+        for entry in all_entries
+        if str(entry.data.get("id", "") or "").strip() != source_entry_id
+    ]
+    baseline_context = _search_context_from_entries(
+        repo_root,
+        baseline_entries,
+        route_ref=route_ref,
+        query=replay_query,
+    )
+    candidate_context = _search_context_from_entries(
+        repo_root,
+        all_entries,
+        route_ref=route_ref,
+        query=replay_query,
+    )
+    decision = _scenario_replay_decision(
+        opportunity=opportunity,
+        baseline_context=baseline_context,
+        candidate_context=candidate_context,
+        history_scenarios=history_scenarios,
+    )
+    evidence_grade = str(decision["evidence_grade"])
+    validation_status = str(decision["validation_status"])
+    handoff = _scenario_replay_handoff(opportunity, decision)
+    sandbox_dir = dream_sandbox_dir(repo_root, run_id)
+    sandbox_mode = SANDBOX_MODE_SCENARIO_REPLAY
+    sandbox_path = sandbox_dir / f"experiment-{sequence_index:03d}-{sandbox_mode}.json"
+    relative_sandbox_path = relative_repo_path(repo_root, sandbox_path)
+    validation_result = {
+        "status": validation_status,
+        "classification": classification,
+        "summary": (
+            f"Scenario replay for {opportunity['route_title']} was graded {evidence_grade}: "
+            f"{decision['reason']}"
+        ),
+    }
+    scenario_replay = {
+        "replay_query": replay_query,
+        "candidate_card": _candidate_card_snapshot(opportunity),
+        "historical_scenarios": history_scenarios,
+        "baseline_without_tested_card": _summarize_search_variant("without-tested-card", baseline_context),
+        "with_tested_card": _summarize_search_variant("with-tested-card", candidate_context),
+        "decision_delta": decision,
+    }
+    payload = {
+        "schema_version": DREAM_SCHEMA_VERSION,
+        "kind": "local-kb-dream-sandbox-experiment",
+        "run_id": run_id,
+        "generated_at": generated_at,
+        "sequence_index": sequence_index,
+        "sandbox_mode": sandbox_mode,
+        "route_ref": route_ref,
+        "source_entry_id": source_entry_id,
+        "hypothesis": opportunity["hypothesis"],
+        "allowed_writes": _sandbox_allowed_writes(repo_root, run_id),
+        "trusted_card_mutation": False,
+        "variants": [
+            scenario_replay["baseline_without_tested_card"],
+            scenario_replay["with_tested_card"],
+        ],
+        "scenario_replay": scenario_replay,
+        "evidence_grade": evidence_grade,
+        "validation_result": validation_result,
+        "sleep_handoff": handoff["sleep"],
+        "sleep_handoff_detail": handoff["detail"],
+        "architect_handoff": handoff["architect"],
+        "sandbox_path": relative_sandbox_path,
+    }
+    write_json_file(sandbox_path, payload)
+    return {
+        "sandbox_mode": sandbox_mode,
+        "sandbox_path": relative_sandbox_path,
+        "source_entry_id": source_entry_id,
+        "allowed_writes": payload["allowed_writes"],
+        "evidence_grade": evidence_grade,
+        "validation_result": validation_result,
+        "sleep_handoff": handoff["sleep"],
+        "sleep_handoff_detail": handoff["detail"],
+        "architect_handoff": handoff["architect"],
+        "scenario_replay": scenario_replay,
+        "previous_action": "Replay the task scenario without the tested card available in local search.",
+        "previous_result": decision["baseline_summary"],
+        "revised_action": "Replay the same scenario with the tested card available in local search.",
+        "revised_result": decision["candidate_summary"],
+    }
+
+
+def _run_dream_sandbox(
+    repo_root: Path,
+    *,
+    run_id: str,
+    generated_at: str,
+    sequence_index: int,
+    opportunity: dict[str, Any],
+    search_context: dict[str, Any],
+    classification: str,
+    history_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if _sandbox_mode_for_opportunity(opportunity) == SANDBOX_MODE_SCENARIO_REPLAY:
+        return _run_scenario_replay_sandbox(
+            repo_root,
+            run_id=run_id,
+            generated_at=generated_at,
+            sequence_index=sequence_index,
+            opportunity=opportunity,
+            classification=classification,
+            history_events=history_events,
+        )
+    return _run_retrieval_ab_sandbox(
+        repo_root,
+        run_id=run_id,
+        generated_at=generated_at,
+        sequence_index=sequence_index,
+        opportunity=opportunity,
+        search_context=search_context,
+        classification=classification,
+    )
 
 
 def _entry_ids_from_search_results(search_context: dict[str, Any]) -> list[str]:
@@ -851,7 +1241,7 @@ def _dream_validation_context(
     validation_result = experiment.get("validation_result", {})
     if not isinstance(validation_result, dict):
         validation_result = {}
-    return {
+    context = {
         "run_id": run_id,
         "opportunity_kind": str(opportunity.get("kind", "") or ""),
         "classification": str(experiment.get("classification", "") or ""),
@@ -868,6 +1258,16 @@ def _dream_validation_context(
         "architect_handoff": str(experiment.get("architect_handoff", "") or ""),
         "handoff_action": suggested_action,
     }
+    sleep_handoff_detail = experiment.get("sleep_handoff_detail", {})
+    if isinstance(sleep_handoff_detail, dict) and sleep_handoff_detail:
+        context["sleep_handoff_detail"] = sleep_handoff_detail
+    scenario_replay = experiment.get("scenario_replay", {})
+    if isinstance(scenario_replay, dict) and scenario_replay:
+        context["scenario_replay"] = {
+            "replay_query": str(scenario_replay.get("replay_query", "") or ""),
+            "decision_delta": scenario_replay.get("decision_delta", {}),
+        }
+    return context
 
 
 def _unique_entry_ids(searches: list[dict[str, Any]]) -> list[str]:
@@ -1021,6 +1421,10 @@ def _record_dream_observation(
     scenario = str(opportunity.get("hypothesis", "") or "")
     action_taken = str(experiment.get("action_taken", "") or "")
     observed_result = str(experiment.get("observed_result", "") or "")
+    previous_action = str(experiment.get("previous_action", "") or "")
+    previous_result = str(experiment.get("previous_result", "") or "")
+    revised_action = str(experiment.get("revised_action", "") or "")
+    revised_result = str(experiment.get("revised_result", "") or "")
     operational_use = str(experiment.get("operational_use", "") or "")
     reuse_judgment = str(experiment.get("reuse_judgment", "") or "")
     observation = build_observation(
@@ -1035,6 +1439,10 @@ def _record_dream_observation(
         scenario=scenario,
         action_taken=action_taken,
         observed_result=observed_result,
+        previous_action=previous_action,
+        previous_result=previous_result,
+        revised_action=revised_action,
+        revised_result=revised_result,
         operational_use=operational_use,
         reuse_judgment=reuse_judgment,
         source_kind="dream-maintenance",
@@ -1172,6 +1580,7 @@ def _build_execution_plan(
             "route_candidate_modes": ["dream-adjacent", "candidate-backlog"],
             "candidate_backlog_write_back": "history-only Sleep handoff",
             "sandbox_experiment_mode": SANDBOX_EXPERIMENT_MODE,
+            "sandbox_experiment_modes": [SANDBOX_MODE_RETRIEVAL_AB, SANDBOX_MODE_SCENARIO_REPLAY],
             "sandbox_allowed_writes": _sandbox_allowed_writes(repo_root, run_id),
         },
         "opportunity_count": opportunity_count,
@@ -1354,6 +1763,7 @@ def run_dream_maintenance(
             "sequence_index": sequence_index,
             "route_ref": item["route_ref"],
             "kind": item["kind"],
+            "candidate_creation_mode": str(item.get("candidate_creation_mode", "") or ""),
             "hypothesis": item["hypothesis"],
             "allowed_action_surface": item["allowed_action_surface"],
             "experiment_design": item["experiment_design"],
@@ -1363,7 +1773,7 @@ def run_dream_maintenance(
             "safety_tier": item["safety_tier"],
             "rollback_plan": item["rollback_plan"],
             "permitted_write_back": item["permitted_write_back"],
-            "sandbox_mode": SANDBOX_EXPERIMENT_MODE,
+            "sandbox_mode": _sandbox_mode_for_opportunity(item),
             "allowed_writes": _sandbox_allowed_writes(repo_root, resolved_run_id),
             "is_executable": item["is_executable"],
             "executability_score": item["executability_score"],
@@ -1521,6 +1931,7 @@ def run_dream_maintenance(
             "kind": opportunity["kind"],
             "route_ref": opportunity["route_ref"],
             "route_title": opportunity["route_title"],
+            "candidate_creation_mode": str(opportunity.get("candidate_creation_mode", "") or ""),
             "hypothesis": opportunity["hypothesis"],
             "allowed_action_surface": opportunity["allowed_action_surface"],
             "experiment_design": opportunity["experiment_design"],
@@ -1542,17 +1953,32 @@ def run_dream_maintenance(
             "reuse_judgment": reuse_judgment,
             "created_candidate": created_candidate,
         }
-        experiment.update(
-            _run_retrieval_ab_sandbox(
-                repo_root,
-                run_id=resolved_run_id,
-                generated_at=generated_at,
-                sequence_index=sequence_index,
-                opportunity=opportunity,
-                search_context=search_context,
-                classification=classification,
-            )
+        sandbox_result = _run_dream_sandbox(
+            repo_root,
+            run_id=resolved_run_id,
+            generated_at=generated_at,
+            sequence_index=sequence_index,
+            opportunity=opportunity,
+            search_context=search_context,
+            classification=classification,
+            history_events=history_events,
         )
+        experiment.update(sandbox_result)
+        if experiment.get("sandbox_mode") == SANDBOX_MODE_SCENARIO_REPLAY:
+            replay = experiment.get("scenario_replay", {})
+            decision = replay.get("decision_delta", {}) if isinstance(replay, dict) else {}
+            action_taken = (
+                f"Ran a scenario-replay Dream sandbox for {opportunity['route_title']}: compared local search "
+                "without the tested card against search with the tested card using a historical or card-derived task scenario."
+            )
+            observed_result = str(decision.get("reason", "") or observed_result)
+            operational_use = (
+                "Use the scenario-replay delta as Sleep review input for the tested candidate; do not treat it "
+                "as trusted-card promotion evidence without later live-task confirmation."
+            )
+            experiment["action_taken"] = action_taken
+            experiment["observed_result"] = observed_result
+            experiment["operational_use"] = operational_use
         observation_event_id = _record_dream_observation(
             repo_root,
             run_id=resolved_run_id,

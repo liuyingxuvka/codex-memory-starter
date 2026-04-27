@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import json
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from local_kb.snapshots import resolve_run_dir
 SCHEMA_VERSION = 1
 REPORT_KIND = "local-kb-proposal-inspection"
 ACTIONS_DIRNAME = "actions"
+EDITORIAL_SUMMARY_LIMIT = 5
 REQUIRED_STUB_FIELDS = (
     "schema_version",
     "kind",
@@ -195,6 +197,97 @@ def _target_label(target: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _count_label(value: Any) -> str:
+    label = str(value or "").strip()
+    return label or "<missing>"
+
+
+def _count_summary(values: list[str], key_name: str, *, limit: int | None = None) -> list[dict[str, Any]]:
+    items = sorted(Counter(values).items(), key=lambda item: (-item[1], item[0]))
+    if limit is not None:
+        items = items[:limit]
+    return [{key_name: key, "count": count} for key, count in items]
+
+
+def _eligibility(stub: dict[str, Any]) -> dict[str, Any]:
+    value = stub.get("apply_eligibility", {})
+    return value if isinstance(value, dict) else {}
+
+
+def _is_eligible(stub: dict[str, Any]) -> bool:
+    return bool(_eligibility(stub).get("eligible", False))
+
+
+def _supported_mode(stub: dict[str, Any]) -> str:
+    return _count_label(_eligibility(stub).get("supported_mode"))
+
+
+def _eligibility_reason(stub: dict[str, Any]) -> str:
+    return _count_label(_eligibility(stub).get("reason"))
+
+
+def _eligible_action_brief(stub: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "action_key": str(stub.get("action_key", "") or ""),
+        "action_type": str(stub.get("action_type", "") or ""),
+        "target": _target_label(stub.get("target", {})),
+        "supported_mode": _supported_mode(stub),
+        "reason": _eligibility_reason(stub),
+        "priority_score": float(stub.get("priority_score", 0.0) or 0.0),
+        "event_count": int(stub.get("event_count", 0) or 0),
+    }
+
+
+def _supported_mode_summary(stubs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for stub in stubs:
+        mode = _supported_mode(stub)
+        bucket = grouped.setdefault(
+            mode,
+            {
+                "supported_mode": mode,
+                "action_count": 0,
+                "eligible_action_count": 0,
+                "non_eligible_action_count": 0,
+            },
+        )
+        bucket["action_count"] += 1
+        if _is_eligible(stub):
+            bucket["eligible_action_count"] += 1
+        else:
+            bucket["non_eligible_action_count"] += 1
+    return sorted(
+        grouped.values(),
+        key=lambda item: (
+            -int(item["action_count"]),
+            str(item["supported_mode"]),
+        ),
+    )
+
+
+def build_editorial_summary(stubs: list[dict[str, Any]]) -> dict[str, Any]:
+    eligible_stubs = [stub for stub in stubs if _is_eligible(stub)]
+    non_eligible_stubs = [stub for stub in stubs if not _is_eligible(stub)]
+    return {
+        "total_actions": len(stubs),
+        "eligible_actions": len(eligible_stubs),
+        "non_eligible_actions": len(non_eligible_stubs),
+        "action_type_counts": _count_summary(
+            [_count_label(stub.get("action_type")) for stub in stubs],
+            "action_type",
+        ),
+        "eligibility_supported_mode_counts": _supported_mode_summary(stubs),
+        "eligible_action_briefs": [
+            _eligible_action_brief(stub) for stub in eligible_stubs[:EDITORIAL_SUMMARY_LIMIT]
+        ],
+        "non_eligible_reason_counts": _count_summary(
+            [_eligibility_reason(stub) for stub in non_eligible_stubs],
+            "reason",
+            limit=EDITORIAL_SUMMARY_LIMIT,
+        ),
+    }
+
+
 def build_proposal_report(
     repo_root: Path,
     *,
@@ -217,10 +310,15 @@ def build_proposal_report(
         "valid_stub_count": valid_stub_count,
         "invalid_stub_count": len(stubs) - valid_stub_count,
         "ai_decision_required_count": ai_decision_required_count,
+        "editorial_summary": build_editorial_summary(stubs),
         "action_type_summary": summarize_proposal_stubs(stubs, "action_type"),
         "suggested_artifact_kind_summary": summarize_proposal_stubs(stubs, "suggested_artifact_kind"),
         "stubs": stubs,
     }
+
+
+def _summary_pairs(items: list[dict[str, Any]], key_name: str, count_name: str = "count") -> str:
+    return ", ".join(f"{item[key_name]}={item[count_name]}" for item in items)
 
 
 def format_proposal_report(report: dict[str, Any]) -> str:
@@ -234,6 +332,44 @@ def format_proposal_report(report: dict[str, Any]) -> str:
             f"ai_decision_required={report['ai_decision_required_count']}."
         ),
     ]
+
+    editorial_summary = report.get("editorial_summary", {})
+    if isinstance(editorial_summary, dict):
+        lines.append("Editorial summary:")
+        lines.append(
+            (
+                f"- total_actions={editorial_summary.get('total_actions', 0)}, "
+                f"eligible_actions={editorial_summary.get('eligible_actions', 0)}, "
+                f"non_eligible_actions={editorial_summary.get('non_eligible_actions', 0)}"
+            )
+        )
+        action_type_counts = editorial_summary.get("action_type_counts", [])
+        if action_type_counts:
+            lines.append(f"- action_type_counts: {_summary_pairs(action_type_counts, 'action_type')}")
+        supported_mode_counts = editorial_summary.get("eligibility_supported_mode_counts", [])
+        if supported_mode_counts:
+            mode_parts = [
+                (
+                    f"{item['supported_mode']}={item['action_count']} "
+                    f"(eligible={item['eligible_action_count']})"
+                )
+                for item in supported_mode_counts
+            ]
+            lines.append(f"- eligibility_supported_modes: {', '.join(mode_parts)}")
+        eligible_briefs = editorial_summary.get("eligible_action_briefs", [])
+        if eligible_briefs:
+            lines.append("- eligible_action_briefs:")
+            for item in eligible_briefs:
+                lines.append(
+                    (
+                        f"  - {item['action_key']} [{item['action_type']}] "
+                        f"target={item['target']} mode={item['supported_mode']} "
+                        f"events={item['event_count']} priority={item['priority_score']:.2f}"
+                    )
+                )
+        reason_counts = editorial_summary.get("non_eligible_reason_counts", [])
+        if reason_counts:
+            lines.append(f"- non_eligible_reasons: {_summary_pairs(reason_counts, 'reason')}")
 
     lines.append("By action type:")
     for item in report.get("action_type_summary", []):

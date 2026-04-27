@@ -49,7 +49,11 @@ class KbProposalInspectionTests(unittest.TestCase):
                     "task_summaries": ["Management deck feedback kept missing a route card"],
                     "signals": {"miss_count": 2},
                     "suggested_artifact_kind": "candidate-card",
-                    "apply_eligibility": {"eligible": True, "reason": "repeated route group"},
+                    "apply_eligibility": {
+                        "eligible": True,
+                        "supported_mode": "new-candidates",
+                        "reason": "repeated route group",
+                    },
                     "recommended_next_step": "Draft a candidate card for this route.",
                     "ai_decision_required": False,
                 },
@@ -71,7 +75,11 @@ class KbProposalInspectionTests(unittest.TestCase):
                     "task_summaries": ["Observed undeclared design presentation route"],
                     "signals": {"gap_count": 3},
                     "suggested_artifact_kind": "taxonomy-branch",
-                    "apply_eligibility": {"eligible": False, "reason": "proposal only"},
+                    "apply_eligibility": {
+                        "eligible": False,
+                        "supported_mode": "manual-taxonomy",
+                        "reason": "proposal only",
+                    },
                     "recommended_next_step": "Review whether a new taxonomy branch should be declared.",
                     "ai_decision_required": True,
                 },
@@ -92,7 +100,11 @@ class KbProposalInspectionTests(unittest.TestCase):
                     "routes": ["system/knowledge-library/retrieval"],
                     "task_summaries": ["Retriever preflight card needs narrower wording"],
                     "suggested_artifact_kind": "entry-update",
-                    "apply_eligibility": {"eligible": False, "reason": "AI should inspect"},
+                    "apply_eligibility": {
+                        "eligible": False,
+                        "supported_mode": "semantic-review",
+                        "reason": "AI should inspect",
+                    },
                     "recommended_next_step": "Inspect the current model card and tighten its scope.",
                     "ai_decision_required": True,
                     "split_review_suggestion": {
@@ -111,6 +123,33 @@ class KbProposalInspectionTests(unittest.TestCase):
             self.assertEqual(report["valid_stub_count"], 2)
             self.assertEqual(report["invalid_stub_count"], 1)
             self.assertEqual(report["ai_decision_required_count"], 2)
+            editorial_summary = report["editorial_summary"]
+            self.assertEqual(editorial_summary["total_actions"], 3)
+            self.assertEqual(editorial_summary["eligible_actions"], 1)
+            self.assertEqual(editorial_summary["non_eligible_actions"], 2)
+            self.assertEqual(
+                {item["action_type"]: item["count"] for item in editorial_summary["action_type_counts"]},
+                {
+                    "consider-new-candidate": 1,
+                    "review-entry-update": 1,
+                    "review-taxonomy": 1,
+                },
+            )
+            supported_modes = {
+                item["supported_mode"]: item
+                for item in editorial_summary["eligibility_supported_mode_counts"]
+            }
+            self.assertEqual(supported_modes["new-candidates"]["action_count"], 1)
+            self.assertEqual(supported_modes["new-candidates"]["eligible_action_count"], 1)
+            self.assertEqual(supported_modes["semantic-review"]["non_eligible_action_count"], 1)
+            self.assertEqual(
+                editorial_summary["eligible_action_briefs"][0]["action_key"],
+                "candidate-route-work-reporting-ppt",
+            )
+            self.assertEqual(
+                {item["reason"]: item["count"] for item in editorial_summary["non_eligible_reason_counts"]},
+                {"AI should inspect": 1, "proposal only": 1},
+            )
             candidate_action_summary = next(
                 item for item in report["action_type_summary"] if item["action_type"] == "consider-new-candidate"
             )
@@ -238,7 +277,11 @@ class KbProposalInspectionTests(unittest.TestCase):
                     "task_summaries": ["Design route is still undeclared"],
                     "signals": {"gap_count": 4},
                     "suggested_artifact_kind": "taxonomy-branch",
-                    "apply_eligibility": {"eligible": False, "reason": "AI maintenance only"},
+                    "apply_eligibility": {
+                        "eligible": False,
+                        "supported_mode": "manual-taxonomy",
+                        "reason": "AI maintenance only",
+                    },
                     "recommended_next_step": "Review the taxonomy gap during maintenance.",
                     "ai_decision_required": True,
                 },
@@ -259,6 +302,11 @@ class KbProposalInspectionTests(unittest.TestCase):
             )
 
             self.assertIn("Run manual-check has 1 proposal stubs", result.stdout)
+            self.assertIn("Editorial summary:", result.stdout)
+            self.assertIn("total_actions=1", result.stdout)
+            self.assertIn("eligible_actions=0", result.stdout)
+            self.assertIn("eligibility_supported_modes: manual-taxonomy=1", result.stdout)
+            self.assertIn("non_eligible_reasons: AI maintenance only=1", result.stdout)
             self.assertIn("By action type:", result.stdout)
             self.assertIn("review-taxonomy", result.stdout)
             self.assertIn("taxonomy-gap-design", result.stdout)

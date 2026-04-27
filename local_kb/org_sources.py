@@ -14,6 +14,10 @@ ORG_KB_MANIFEST = "khaos_org_kb.yaml"
 ORG_KB_KIND = "khaos-organization-kb"
 SUPPORTED_SCHEMA_VERSION = 1
 ORG_MAIN_ACTIVE_STATUSES = {"trusted", "candidate"}
+ORG_TARGET_LAYOUT = "main-imports"
+ORG_LEGACY_LAYOUT = "legacy-trusted-candidates"
+ORG_RECOMMENDED_MAIN_PATH = "kb/main"
+ORG_RECOMMENDED_IMPORTS_PATH = "kb/imports"
 
 
 def utc_timestamp() -> str:
@@ -28,6 +32,25 @@ def _as_relative_path(value: Any) -> str:
     if any(part == ".." for part in parts):
         return ""
     return "/".join(parts)
+
+
+def _yaml_status_counts(path: Path) -> tuple[int, dict[str, int]]:
+    if not path.exists():
+        return 0, {}
+    total = 0
+    status_counts: dict[str, int] = {}
+    for card_path in path.rglob("*.yaml"):
+        total += 1
+        try:
+            card = load_yaml_file(card_path)
+        except Exception:
+            continue
+        if not isinstance(card, dict):
+            continue
+        status = str(card.get("status") or "").strip().lower()
+        if status:
+            status_counts[status] = status_counts.get(status, 0) + 1
+    return total, status_counts
 
 
 def _git_executable() -> str:
@@ -267,28 +290,52 @@ def validate_organization_repo(repo_path: Path) -> dict[str, Any]:
         else:
             errors.append(f"skills registry does not exist: {registry_path_text}")
 
+    layout = ORG_TARGET_LAYOUT if main_path_text else ORG_LEGACY_LAYOUT
+    legacy_compatibility = layout == ORG_LEGACY_LAYOUT
+    legacy_paths = [path for path in (trusted_path_text, candidates_path_text) if path]
+
     main_count = 0
     main_active_count = 0
     trusted_count = 0
     candidate_count = 0
+    main_status_counts: dict[str, int] = {}
+    imports_count = 0
+    imports_status_counts: dict[str, int] = {}
+    legacy_trusted_count = 0
+    legacy_candidate_count = 0
+    legacy_status_counts: dict[str, int] = {}
+
     if main_path_text and (repo_path / main_path_text).exists():
-        for card_path in (repo_path / main_path_text).rglob("*.yaml"):
-            main_count += 1
-            try:
-                card = load_yaml_file(card_path)
-            except Exception:
-                continue
-            status = str(card.get("status") or "").strip().lower()
-            if status in ORG_MAIN_ACTIVE_STATUSES:
-                main_active_count += 1
-            if status in {"trusted", "approved"}:
-                trusted_count += 1
-            elif status == "candidate":
-                candidate_count += 1
+        main_count, main_status_counts = _yaml_status_counts(repo_path / main_path_text)
+        main_active_count = sum(main_status_counts.get(status, 0) for status in ORG_MAIN_ACTIVE_STATUSES)
+        trusted_count = main_status_counts.get("trusted", 0) + main_status_counts.get("approved", 0)
+        candidate_count = main_status_counts.get("candidate", 0)
     else:
-        trusted_count = len(list((repo_path / trusted_path_text).rglob("*.yaml"))) if trusted_path_text else 0
-        candidate_count = len(list((repo_path / candidates_path_text).rglob("*.yaml"))) if candidates_path_text else 0
+        legacy_trusted_count, trusted_status_counts = (
+            _yaml_status_counts(repo_path / trusted_path_text) if trusted_path_text else (0, {})
+        )
+        legacy_candidate_count, candidate_status_counts = (
+            _yaml_status_counts(repo_path / candidates_path_text) if candidates_path_text else (0, {})
+        )
+        trusted_count = legacy_trusted_count
+        candidate_count = legacy_candidate_count
         main_active_count = trusted_count + candidate_count
+        for status_counts in (trusted_status_counts, candidate_status_counts):
+            for status, count in status_counts.items():
+                legacy_status_counts[status] = legacy_status_counts.get(status, 0) + count
+
+    if imports_path_text:
+        imports_count, imports_status_counts = _yaml_status_counts(repo_path / imports_path_text)
+
+    local_download_paths = [main_path_text] if main_path_text else legacy_paths
+    layout_message = (
+        "Organization repository uses the recommended kb/imports incoming lane and kb/main exchange surface."
+        if not legacy_compatibility
+        else (
+            "Legacy kb/trusted and kb/candidates are accepted for compatibility only; "
+            "the recommended organization layout is kb/imports for incoming proposals and kb/main for the exchange surface."
+        )
+    )
 
     return {
         "ok": not errors,
@@ -297,7 +344,16 @@ def validate_organization_repo(repo_path: Path) -> dict[str, Any]:
         "manifest_path": str(manifest_path),
         "organization_id": organization_id,
         "schema_version": manifest.get("schema_version"),
-        "layout": "main-imports" if main_path_text else "legacy-trusted-candidates",
+        "layout": layout,
+        "target_layout": ORG_TARGET_LAYOUT,
+        "legacy_compatibility": legacy_compatibility,
+        "layout_message": layout_message,
+        "incoming_lane_path": imports_path_text or ORG_RECOMMENDED_IMPORTS_PATH,
+        "exchange_surface_path": main_path_text or ORG_RECOMMENDED_MAIN_PATH,
+        "legacy_paths": legacy_paths,
+        "local_download_primary_path": main_path_text or ORG_RECOMMENDED_MAIN_PATH,
+        "local_download_paths": local_download_paths,
+        "local_download_excluded_paths": [imports_path_text] if imports_path_text else [ORG_RECOMMENDED_IMPORTS_PATH],
         "main_path": main_path_text,
         "trusted_path": trusted_path_text,
         "candidates_path": candidates_path_text,
@@ -306,6 +362,12 @@ def validate_organization_repo(repo_path: Path) -> dict[str, Any]:
         "skill_candidates_path": skill_candidates_path_text,
         "main_count": main_count,
         "main_active_count": main_active_count,
+        "main_status_counts": main_status_counts,
+        "imports_count": imports_count,
+        "imports_status_counts": imports_status_counts,
+        "legacy_trusted_count": legacy_trusted_count,
+        "legacy_candidate_count": legacy_candidate_count,
+        "legacy_status_counts": legacy_status_counts,
         "trusted_count": trusted_count,
         "candidate_count": candidate_count,
         "skill_count": len(registry_skills),

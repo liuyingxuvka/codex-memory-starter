@@ -1,7 +1,7 @@
 # Khaos Brain
 
-- Repository head (`main`) / 仓库主线（`main`）: `v0.4.0`
-- Latest released version / 最新已发布版本: `v0.4.0`
+- Repository head (`main`) / 仓库主线（`main`）: `v0.4.1`
+- Latest released version / 最新已发布版本: `v0.4.1`
 - Project name / 项目名称: `Khaos Brain`
 - 中文正文在前；后半部分是完整英文镜像。 / Chinese comes first; the second half is a full English mirror.
 
@@ -51,6 +51,8 @@ The current release is Codex-first: the installer, global skills, default rules 
 - 组织维护：组织库也有自己的维护流程，用来整理共享候选卡、共享 Skill 和审查结果。
 
 所以它不是只“记住一句提示词”。它在持续整理经验、模型和工具使用方式，让下一次任务更像是从已有经验出发，而不是从空白上下文出发。
+
+安装完成后，这些节律可以由本机自动任务持续运行：日常任务前后自动检索和写回，随后由 Sleep、Dream、Architect 和组织维护在各自时间窗口整理、验证、审阅和交换经验。人仍然可以通过卡片、报告、Git diff 和回滚记录审查结果，但不需要每天手工驱动整套经验库。
 
 ### 个人模式和组织模式
 
@@ -255,6 +257,8 @@ The system deliberately follows a brain-like rhythm:
 - Organization maintenance: the shared organization KB has its own maintenance path for contributed cards, shared Skills, and review outcomes.
 
 So this is not just a prompt notebook. It continuously organizes experience, models, and tool-use behavior so the next task starts from accumulated evidence instead of an empty context window.
+
+After installation, those rhythms can run through local automations: task preflight and postflight keep retrieving and writing evidence, while Sleep, Dream, Architect, and organization maintenance consolidate, test, review, and exchange experience in their own time windows. Humans can still inspect cards, reports, Git diffs, and rollback records, but the memory library does not require daily manual operation.
 
 ### Personal Mode And Organization Mode
 

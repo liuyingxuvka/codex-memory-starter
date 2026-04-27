@@ -14,6 +14,27 @@ from local_kb.store import load_organization_entries
 ORGANIZATION_REVIEW_SKILL_ID = "organization-review"
 
 
+def _report_layout_policy(validation: dict[str, Any]) -> dict[str, Any]:
+    legacy_compatibility = bool(validation.get("legacy_compatibility"))
+    return {
+        "target_layout": "main-imports",
+        "incoming_lane_path": str(validation.get("incoming_lane_path") or "kb/imports"),
+        "exchange_surface_path": str(validation.get("exchange_surface_path") or "kb/main"),
+        "local_download_primary_path": str(validation.get("local_download_primary_path") or "kb/main"),
+        "local_download_paths": validation.get("local_download_paths") or ["kb/main"],
+        "local_download_excluded_paths": validation.get("local_download_excluded_paths") or ["kb/imports"],
+        "contribution_writes": ["kb/imports"],
+        "maintenance_moves_reviewed_cards_to": "kb/main",
+        "legacy_compatibility": legacy_compatibility,
+        "legacy_paths": validation.get("legacy_paths") or ["kb/trusted", "kb/candidates"],
+        "legacy_notice": (
+            "Legacy kb/trusted and kb/candidates are compatibility inputs only, not the target organization structure."
+            if legacy_compatibility
+            else ""
+        ),
+    }
+
+
 def build_organization_cleanup_review(proposal: dict[str, Any]) -> dict[str, Any]:
     decisions: list[dict[str, Any]] = []
     selected_action_ids: list[str] = []
@@ -167,8 +188,16 @@ def build_organization_maintenance_report(
             }
 
     recommendations: list[str] = []
-    if validation.get("candidate_count", 0):
-        recommendations.append("review-organization-candidates")
+    imports_count = int(validation.get("imports_count") or 0)
+    main_active_count = int(validation.get("main_active_count") or 0)
+    if imports_count:
+        recommendations.append("review-organization-imports")
+    if main_active_count:
+        recommendations.append("review-main-exchange-surface")
+    if validation.get("legacy_compatibility"):
+        recommendations.append("migrate-legacy-compatible-layout-to-main-imports")
+        if validation.get("candidate_count", 0):
+            recommendations.append("review-legacy-compatible-candidates")
     if outbox_count:
         recommendations.append("review-local-outbox-proposals")
     if validation.get("skill_count", 0):
@@ -182,6 +211,7 @@ def build_organization_maintenance_report(
     cleanup_review = build_organization_cleanup_review(cleanup_proposal)
     cleanup_apply: dict[str, Any] = {"attempted": False}
     post_apply_check: dict[str, Any] = {}
+    post_apply_validation: dict[str, Any] = {}
     if apply_reviewed_cleanup and cleanup_review["selected_action_ids"]:
         cleanup_apply = apply_organization_cleanup_proposal(
             Path(org_root),
@@ -194,12 +224,29 @@ def build_organization_maintenance_report(
             dry_run=dry_run,
         )
         cleanup_apply["attempted"] = True
+        post_validation = validate_organization_repo(org_root)
         post_check = check_organization_repository(org_root)
         post_apply_check = {
             "ok": bool(post_check.get("ok")),
+            "validation_ok": bool(post_validation.get("ok")),
             "error_count": len(post_check.get("errors") or []),
             "warning_count": len(post_check.get("warnings") or []),
             "auto_merge_blockers": post_check.get("auto_merge_blockers") or [],
+        }
+        post_apply_validation = {
+            "ok": bool(post_validation.get("ok")),
+            "layout": post_validation.get("layout"),
+            "incoming_lane_path": post_validation.get("incoming_lane_path"),
+            "exchange_surface_path": post_validation.get("exchange_surface_path"),
+            "main_count": post_validation.get("main_count", 0),
+            "main_active_count": post_validation.get("main_active_count", 0),
+            "main_status_counts": post_validation.get("main_status_counts") or {},
+            "imports_count": post_validation.get("imports_count", 0),
+            "imports_status_counts": post_validation.get("imports_status_counts") or {},
+            "legacy_trusted_count": post_validation.get("legacy_trusted_count", 0),
+            "legacy_candidate_count": post_validation.get("legacy_candidate_count", 0),
+            "trusted_count": post_validation.get("trusted_count", 0),
+            "candidate_count": post_validation.get("candidate_count", 0),
         }
     trusted_cleanup_actions = [
         action
@@ -215,6 +262,7 @@ def build_organization_maintenance_report(
         "ok": True,
         "maintenance_model": cleanup_proposal.get("maintenance_model") or {},
         "validation": validation,
+        "layout_policy": _report_layout_policy(validation),
         "organization_check": {
             "ok": bool(organization_check.get("ok")),
             "error_count": len(organization_check.get("errors") or []),
@@ -228,6 +276,8 @@ def build_organization_maintenance_report(
             "proposal_action_count": len(cleanup_actions),
             "proposal_counts": cleanup_proposal.get("counts") or {},
             "trusted_card_action_count": len(trusted_cleanup_actions),
+            "exchange_surface_action_count": len(trusted_cleanup_actions),
+            "exchange_surface_maintenance": "in-scope-like-local-sleep",
             "trusted_card_maintenance": "in-scope-like-local-sleep",
             "similar_card_merge_apply": "planned",
             "weak_card_rejection_apply": "planned",
@@ -236,9 +286,19 @@ def build_organization_maintenance_report(
             "review": cleanup_review,
             "apply": cleanup_apply,
             "post_apply_check": post_apply_check,
+            "post_apply_validation": post_apply_validation,
         },
         "organization_id": organization_id,
         "entry_count": len(entries),
+        "main_count": validation.get("main_count", 0),
+        "main_active_count": validation.get("main_active_count", 0),
+        "main_status_counts": validation.get("main_status_counts") or {},
+        "imports_count": validation.get("imports_count", 0),
+        "imports_status_counts": validation.get("imports_status_counts") or {},
+        "legacy_compatibility": bool(validation.get("legacy_compatibility")),
+        "legacy_notice": _report_layout_policy(validation)["legacy_notice"],
+        "legacy_trusted_count": validation.get("legacy_trusted_count", 0),
+        "legacy_candidate_count": validation.get("legacy_candidate_count", 0),
         "trusted_count": validation.get("trusted_count", 0),
         "candidate_count": validation.get("candidate_count", 0),
         "skill_count": validation.get("skill_count", 0),

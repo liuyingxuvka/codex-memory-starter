@@ -13,6 +13,12 @@ maintain `main` cards and imported card content when the evidence supports
 the decision. Local machines still decide what to adopt and how strongly to rely
 on organization cards after import.
 
+Use `kb/imports` as the incoming lane and `kb/main` as the organization exchange
+surface. Legacy `kb/trusted` and `kb/candidates` repositories remain readable
+for compatibility, but reports must label that layout as compatibility-only,
+not the target structure. Local download/search reads organization cards from
+`kb/main` (or legacy fallback paths when no main exists), not from `kb/imports`.
+
 ## Authority
 
 Work from the repository root. Treat these files as authoritative before stateful organization maintenance:
@@ -31,9 +37,9 @@ Current user instructions still override repository files.
 2. The entry point must first read `.local/khaos_brain_desktop_settings.json`.
 3. If organization mode is not validated or this machine has not opted into organization maintenance, exit successfully with a no-op result.
 4. Run KB preflight against `system/knowledge-library/organization` before inspecting organization candidates.
-5. Validate the organization manifest, expected paths, `imports` entry lane, `main` exchange lane, Skill registry, and current Git state before proposing changes.
+5. Validate the organization manifest, expected paths, `kb/imports` incoming lane, `kb/main` exchange surface, legacy compatibility paths when present, Skill registry, and current Git state before proposing changes.
 6. Read the shared maintenance-agent worldview and apply the exchange-layer Sleep model: organization `main` cards are maintainable content, not untouchable central truth.
-7. Run the organization card-surface map checkpoint. Summarize `main` trusted/candidate/rejected/deprecated counts plus import counts; low-confidence trusted cards; duplicate/similar cards; stale rejected/deprecated cards; Skill-linked cards; and privacy/Skill risks before applying anything.
+7. Run the organization card-surface map checkpoint. Summarize `main` trusted/candidate/rejected/deprecated counts plus import counts; low-confidence main trusted cards; duplicate/similar cards; stale rejected/deprecated cards; Skill-linked cards; legacy compatibility counts when applicable; and privacy/Skill risks before applying anything.
 8. Run the organization candidate intake checkpoint. Review new imports for reusable scenario, action, prediction, confidence, route, provenance, and public sharing value; reviewed imports can move into `main` as `candidate` or `trusted`.
 9. Run the organization content-hash checkpoint. Use content hashes for duplicate analysis across `main`, imports, prior accepted uploads, and current proposals. Duplicate entry ids alone are not a maintenance blocker.
 10. Run the mandatory organization similar-card merge checkpoint. Inspect overlapping organization cards by scenario, action, prediction, route, evidence, and content hash. Decide whether to merge, propose a merge, supersede, or skip application with a concrete reason.
@@ -53,4 +59,4 @@ Current user instructions still override repository files.
 
 ## Report
 
-Report the settings gate result, participation status, preflight entry ids, organization manifest status, card-surface map, `main` status counts and import counts, main-card maintenance decisions, content-hash duplicate decisions, organization merge checkpoint decisions, organization split checkpoint decisions, card approval/rejection/rewrite/deprecation decisions, Sleep decision counts, selected action ids, apply result, post-apply check result, maintenance branch, PR, push, and auto-merge-label result, Skill dependency decisions, Skill bundle version decisions, GitHub merge-readiness result, organization-review guidance availability, recommendations, postflight record path, and any errors.
+Report the settings gate result, participation status, preflight entry ids, organization manifest status, layout policy, legacy compatibility notice when applicable, card-surface map, `main` status counts and import counts, main-card maintenance decisions, content-hash duplicate decisions, organization merge checkpoint decisions, organization split checkpoint decisions, card approval/rejection/rewrite/deprecation decisions, Sleep decision counts, selected action ids, apply result, post-apply check result, maintenance branch, PR, push, and auto-merge-label result, Skill dependency decisions, Skill bundle version decisions, GitHub merge-readiness result, organization-review guidance availability, recommendations, postflight record path, and any errors.

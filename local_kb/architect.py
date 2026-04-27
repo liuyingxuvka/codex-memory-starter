@@ -1070,6 +1070,98 @@ def _record_architect_trial_event(repo_root: Path, payload: dict[str, Any]) -> s
     return str(event["event_id"])
 
 
+def _sandbox_trial_final_state(
+    *,
+    repo_root: Path,
+    queue: dict[str, Any],
+    proposal: dict[str, Any],
+    payload: dict[str, Any],
+    event_id: str,
+    generated_at: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": ARCHITECT_SCHEMA_VERSION,
+        "kind": "local-kb-architect-sandbox-trial-final-state",
+        "recorded_at": generated_at,
+        "run_id": str(payload.get("run_id", "") or ""),
+        "proposal_id": str(payload.get("proposal_id", "") or ""),
+        "packet_id": str(payload.get("packet_id", "") or ""),
+        "decision": str(payload.get("decision", "") or ""),
+        "history_event_id": event_id,
+        "sandbox_path": str(payload.get("sandbox_path", "") or ""),
+        "touched_paths": list(payload.get("touched_paths", [])),
+        "validation_passed": bool(payload.get("validation_passed", False)),
+        "manual_checks_passed": bool(payload.get("manual_checks_passed", False)),
+        "final_status": str(proposal.get("status", "") or ""),
+        "final_status_reason": str(proposal.get("status_reason", "") or ""),
+        "final_execution_state": dict(proposal.get("execution_state", {}))
+        if isinstance(proposal.get("execution_state"), dict)
+        else {},
+        "final_status_counts": _status_counts(queue.get("proposals", [])),
+        "final_execution_summary": dict(queue.get("execution_summary", {}))
+        if isinstance(queue.get("execution_summary"), dict)
+        else {},
+        "final_selected_sandbox_trial": dict(queue.get("selected_sandbox_trial", {}))
+        if isinstance(queue.get("selected_sandbox_trial"), dict)
+        else {},
+    }
+
+
+def _write_sandbox_trial_final_state(
+    repo_root: Path,
+    *,
+    queue: dict[str, Any],
+    proposal: dict[str, Any],
+    payload: dict[str, Any],
+    event_id: str,
+    generated_at: str,
+) -> dict[str, Any]:
+    run_id = sanitize_run_id(str(payload.get("run_id", "") or ""))
+    if not run_id:
+        return {"updated": False, "reason": "trial result did not include run_id"}
+    run_dir = architect_run_dir(repo_root, run_id)
+    if not run_dir.exists():
+        return {
+            "updated": False,
+            "reason": "architect run directory was not found",
+            "run_dir": relative_repo_path(repo_root, run_dir),
+        }
+
+    final_state = _sandbox_trial_final_state(
+        repo_root=repo_root,
+        queue=queue,
+        proposal=proposal,
+        payload=payload,
+        event_id=event_id,
+        generated_at=generated_at,
+    )
+    final_state_path = run_dir / "sandbox_trial_final_state.json"
+    write_json_file(final_state_path, final_state)
+
+    report_path = run_dir / REPORT_FILENAME
+    report_updated = False
+    if report_path.exists():
+        report = load_json_object(report_path)
+        report["trial_result_summary"] = final_state
+        report["final_status_counts"] = final_state["final_status_counts"]
+        report["final_execution_summary"] = final_state["final_execution_summary"]
+        report["final_selected_sandbox_trial"] = final_state["final_selected_sandbox_trial"]
+        report["finalized_at"] = generated_at
+        artifact_paths = report.setdefault("artifact_paths", {})
+        if isinstance(artifact_paths, dict):
+            artifact_paths["trial_final_state_path"] = relative_repo_path(repo_root, final_state_path)
+        write_json_file(report_path, report)
+        report_updated = True
+
+    return {
+        "updated": True,
+        "run_id": run_id,
+        "final_state_path": relative_repo_path(repo_root, final_state_path),
+        "report_path": relative_repo_path(repo_root, report_path),
+        "report_updated": report_updated,
+    }
+
+
 def record_architect_sandbox_trial_result(
     repo_root: Path,
     trial_result: dict[str, Any],
@@ -1141,6 +1233,14 @@ def record_architect_sandbox_trial_result(
     event_id = _record_architect_trial_event(repo_root, payload)
     queue["last_sandbox_trial_event_id"] = event_id
     write_json_file(queue_path, queue)
+    run_report_update = _write_sandbox_trial_final_state(
+        repo_root,
+        queue=queue,
+        proposal=proposal,
+        payload=payload,
+        event_id=event_id,
+        generated_at=generated_at,
+    )
     return {
         "schema_version": ARCHITECT_SCHEMA_VERSION,
         "kind": "local-kb-architect-sandbox-trial-record",
@@ -1153,6 +1253,7 @@ def record_architect_sandbox_trial_result(
         "sandbox_trial": payload,
         "execution_summary": queue["execution_summary"],
         "selected_sandbox_trial": queue["selected_sandbox_trial"],
+        "run_report_update": run_report_update,
     }
 
 

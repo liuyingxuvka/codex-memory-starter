@@ -12,17 +12,23 @@ from local_kb.store import append_jsonl, load_yaml_file, write_yaml_file
 
 
 ORG_CLEANUP_AUDIT_RELATIVE_PATH = Path("maintenance") / "cleanup_audit.jsonl"
-CARD_ROOTS = ("kb/main", "kb/imports", "kb/trusted", "kb/candidates")
+TARGET_CARD_ROOTS = ("kb/main", "kb/imports")
+LEGACY_COMPAT_CARD_ROOTS = ("kb/trusted", "kb/candidates")
+CARD_ROOTS = (*TARGET_CARD_ROOTS, *LEGACY_COMPAT_CARD_ROOTS)
 LOW_RISK_APPLY_ACTIONS = {"confidence-adjust", "status-adjust", "mark-duplicate", "accept-import", "promote-card"}
 ORGANIZATION_EXCHANGE_SLEEP_MODEL = {
     "role": "organization-exchange-sleep",
     "description": (
         "Organization maintenance treats the shared repository as an exchange layer, "
-        "not a central truth layer. Trusted, candidate, and imported cards are all "
-        "maintainable card surfaces when evidence supports keep, reject, watch, merge, "
-        "split, rewrite, promote, demote, deprecate, or cross-link decisions."
+        "not a central truth layer. The target layout is kb/imports as the incoming lane "
+        "and kb/main as the exchange surface. Legacy kb/trusted and kb/candidates remain "
+        "compatible inputs, but they are not the target organization structure."
     ),
     "local_final_adoption": True,
+    "incoming_lane": "kb/imports",
+    "exchange_surface": "kb/main",
+    "legacy_compatibility_paths": list(LEGACY_COMPAT_CARD_ROOTS),
+    "exchange_surface_content_maintenance": "in-scope",
     "trusted_card_content_maintenance": "in-scope",
     "extra_boundaries": ["privacy", "skill-safety"],
 }
@@ -430,6 +436,15 @@ def build_organization_cleanup_proposal(
         "organization_id": organization_id,
         "generated_at": utc_now_iso(),
         "maintenance_model": ORGANIZATION_EXCHANGE_SLEEP_MODEL,
+        "lane_policy": {
+            "incoming_lane": "kb/imports",
+            "exchange_surface": "kb/main",
+            "legacy_compatibility_paths": list(LEGACY_COMPAT_CARD_ROOTS),
+            "local_download_primary_path": "kb/main",
+            "local_download_excluded_paths": ["kb/imports"],
+            "contribution_writes": ["kb/imports"],
+            "maintenance_moves_reviewed_cards_to": "kb/main",
+        },
         "card_count": len(records),
         "actions": actions,
         "counts": counts,

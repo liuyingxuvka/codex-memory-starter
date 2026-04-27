@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.1 - 2026-04-27
+
+- Added public repository hygiene files, including the MIT license, contribution guide, and a GitHub Actions workflow that runs tests plus installer and desktop checks.
+- Tightened Sleep, Dream, and Architect reporting so maintenance runs expose clearer status, selected work, sandbox-style validation, and final application results.
+- Expanded Dream experiment handling with bounded scenario-replay validation and richer execution records.
+- Refined organization contribution and maintenance checks for the `imports` / `main` organization-KB layout and direct maintenance audit summaries.
+- Clarified README positioning so the project describes its automatic local maintenance rhythm without overstating autonomy.
+
 ## v0.4.0 - 2026-04-27
 
 - Added a shared maintenance-agent worldview so Sleep, Dream, Architect, and organization maintenance receive clearer role boundaries, evidence standards, sandbox expectations, and human-review criteria.

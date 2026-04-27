@@ -87,7 +87,8 @@ SLEEP_AUTOMATION_PROMPT = (
     "First read the shared maintenance-agent worldview, write a visible sleep execution plan with checkpoint statuses, start with a "
     "sleep self-preflight search against system/knowledge-library/maintenance, then run proposal mode, inspect "
     "taxonomy and route gaps, treat high-volume proposal output and candidate backlog as editorial triage inputs "
-    "rather than an apply agenda, run a mandatory similar-card merge checkpoint, run a mandatory overloaded-card "
+    "rather than an apply agenda, track the current maintenance run id from the consolidation output or chosen "
+    "`--run-id` and reuse that same run id for final lane completion, run a mandatory similar-card merge checkpoint, run a mandatory overloaded-card "
     "split checkpoint, run an organization Skill bundle consolidation checkpoint that groups imported read-only "
     "Skills by bundle_id and keeps only the latest approved version by version_time, record skip-with-reason "
     "decisions when merge, split, or Skill replacement is not safe, review "
@@ -109,7 +110,7 @@ SLEEP_AUTOMATION_PROMPT = (
     "and rerun the relevant validation when a command exposes a fixable issue, run a final sleep postflight check, "
     "append one structured maintenance observation when the pass exposed a reusable lesson or process hazard, stop "
     "after that final observation instead of recursively consolidating it, then run "
-    "`python .agents/skills/local-kb-retrieve/scripts/kb_lane_status.py --lane kb-sleep --status completed --json`, "
+    "`python .agents/skills/local-kb-retrieve/scripts/kb_lane_status.py --lane kb-sleep --status completed --run-id <run_id> --json`, "
     "and report the run id, execution plan "
     "status, self-preflight entries, what became more accurate or clearer, reviewed observation counts, "
     "candidates created or deliberately not created, weak/noisy material rejected or kept history-only, route adjustments or concerns, "
@@ -1315,6 +1316,8 @@ def build_installation_check(
                     "structured maintenance observation",
                     "selected action keys",
                     "--action-key",
+                    "--run-id <run_id>",
+                    "same run id",
                     "status completed",
                     "recursively consolidating",
                 ):

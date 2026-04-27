@@ -27,27 +27,28 @@ Current user instructions still override repository files.
 3. Read the shared maintenance-agent worldview and use it as the judgment model for accuracy, clarity, usefulness, evidence strength, and human-reviewable output quality.
 4. Run the sleep self-preflight search against `system/knowledge-library/maintenance`.
 5. Inspect taxonomy, route gaps, route navigation when needed, and proposal-mode consolidation output.
-6. Before choosing any apply lane, summarize high-volume proposal output as a compact editorial sample pack: action counts, apply eligibility, top route clusters, duplicate candidate clusters, strong examples, weak/noisy examples, Architect-only items, Dream-only items, low-risk navigation examples, and hub-card review examples. Use that map before deep-reading large raw JSON.
-7. Treat candidate backlog as a maintenance object: decide what should be kept, rewritten, merged, rejected, watched, or left proposal-only before adding more candidates.
-8. Treat mechanical apply eligibility as capability only. Do not run a broad apply mode over every eligible action; keep the pass proposal-only unless a compact reviewed set of action keys is explicitly selected.
-9. Run the mandatory similar-card merge checkpoint. Inspect cards surfaced by maintenance output for overlapping scenario, action, prediction, route, or evidence. Decide whether to merge, propose a merge, or skip application with a concrete reason.
-10. Run the mandatory overloaded-card split checkpoint. Inspect recurrent, broad, or `split_review_suggestion` cards and decide whether each one is still a hub card, should move toward a split proposal, or should skip application with a concrete reason.
-11. Run the organization Skill bundle consolidation checkpoint. For imported read-only organization Skills, group by `bundle_id`, keep only the latest approved version by `version_time`, preserve source-card references, and keep all local cards pointing at the same `bundle_id`.
-12. Do not skip the merge, split, or Skill bundle consolidation checkpoint itself. It is acceptable to skip applying a merge, split, or Skill replacement when evidence, safety, tooling, or scope is insufficient, but the inspection and recorded decision must still happen.
-13. Prefer functional, reusable domain paths over project-name route roots when reviewing candidates.
-14. Continue through every safe checkpoint instead of stopping after a short proposal.
-15. Apply only clearly eligible low-risk lanes supported by current tooling: new-candidates, related-cards, cross-index, AI-authored semantic-review, and AI-authored zh-CN i18n. Tool eligibility is not editorial approval; compare the whole eligible set with the editorial map before applying.
-16. Do not create new candidates merely because the tooling can; use new-candidates only when backlog triage shows the scaffold would improve future retrieval.
-17. If an apply mode contains both approved and unapproved actions, use selected action keys instead of skipping the whole lane: `--action-key <approved-action-key>` may be repeated. Skip only when the approved set cannot be named by exact action key.
-18. Limit semantic-review to at most 3 trusted-card modifications per run.
-19. Run zh-CN display translation cleanup after candidate/card creation or semantic text changes.
-20. Keep taxonomy rewrites proposal-only unless current tooling cleanly supports the exact change.
-21. Inspect rollback artifacts when needed, including history-events, related-card-entries, cross-index-entries, and semantic-review-entries when present.
-22. Attempt supported low-risk repairs and rerun the relevant validation when a command exposes a fixable issue.
-23. Run a final sleep postflight check.
-24. Append one structured maintenance observation when the pass exposed a reusable lesson, route gap, card weakness, merge signal, split signal, Skill bundle update, or process hazard.
-25. Run `python .agents/skills/local-kb-retrieve/scripts/kb_lane_status.py --lane kb-sleep --status completed --json`.
-26. Stop after that final observation. Do not immediately consolidate the observation just written.
+6. Track the current maintenance run id from the consolidation output or chosen `--run-id`; reuse that same run id in the final lane status completion command.
+7. Before choosing any apply lane, summarize high-volume proposal output as a compact editorial sample pack: action counts, apply eligibility, top route clusters, duplicate candidate clusters, strong examples, weak/noisy examples, Architect-only items, Dream-only items, low-risk navigation examples, and hub-card review examples. Use that map before deep-reading large raw JSON.
+8. Treat candidate backlog as a maintenance object: decide what should be kept, rewritten, merged, rejected, watched, or left proposal-only before adding more candidates.
+9. Treat mechanical apply eligibility as capability only. Do not run a broad apply mode over every eligible action; keep the pass proposal-only unless a compact reviewed set of action keys is explicitly selected.
+10. Run the mandatory similar-card merge checkpoint. Inspect cards surfaced by maintenance output for overlapping scenario, action, prediction, route, or evidence. Decide whether to merge, propose a merge, or skip application with a concrete reason.
+11. Run the mandatory overloaded-card split checkpoint. Inspect recurrent, broad, or `split_review_suggestion` cards and decide whether each one is still a hub card, should move toward a split proposal, or should skip application with a concrete reason.
+12. Run the organization Skill bundle consolidation checkpoint. For imported read-only organization Skills, group by `bundle_id`, keep only the latest approved version by `version_time`, preserve source-card references, and keep all local cards pointing at the same `bundle_id`.
+13. Do not skip the merge, split, or Skill bundle consolidation checkpoint itself. It is acceptable to skip applying a merge, split, or Skill replacement when evidence, safety, tooling, or scope is insufficient, but the inspection and recorded decision must still happen.
+14. Prefer functional, reusable domain paths over project-name route roots when reviewing candidates.
+15. Continue through every safe checkpoint instead of stopping after a short proposal.
+16. Apply only clearly eligible low-risk lanes supported by current tooling: new-candidates, related-cards, cross-index, AI-authored semantic-review, and AI-authored zh-CN i18n. Tool eligibility is not editorial approval; compare the whole eligible set with the editorial map before applying.
+17. Do not create new candidates merely because the tooling can; use new-candidates only when backlog triage shows the scaffold would improve future retrieval.
+18. If an apply mode contains both approved and unapproved actions, use selected action keys instead of skipping the whole lane: `--action-key <approved-action-key>` may be repeated. Skip only when the approved set cannot be named by exact action key.
+19. Limit semantic-review to at most 3 trusted-card modifications per run.
+20. Run zh-CN display translation cleanup after candidate/card creation or semantic text changes.
+21. Keep taxonomy rewrites proposal-only unless current tooling cleanly supports the exact change.
+22. Inspect rollback artifacts when needed, including history-events, related-card-entries, cross-index-entries, and semantic-review-entries when present.
+23. Attempt supported low-risk repairs and rerun the relevant validation when a command exposes a fixable issue.
+24. Run a final sleep postflight check.
+25. Append one structured maintenance observation when the pass exposed a reusable lesson, route gap, card weakness, merge signal, split signal, Skill bundle update, or process hazard.
+26. Run `python .agents/skills/local-kb-retrieve/scripts/kb_lane_status.py --lane kb-sleep --status completed --run-id <run_id> --json`.
+27. Stop after that final observation. Do not immediately consolidate the observation just written.
 
 ## Report
 

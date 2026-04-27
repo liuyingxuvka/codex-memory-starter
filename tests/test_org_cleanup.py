@@ -65,6 +65,13 @@ class OrganizationCleanupTests(unittest.TestCase):
             status="candidate",
             confidence=0.55,
         )
+        incoming = base_card(
+            "incoming-card",
+            "Incoming import candidate",
+            "Imported candidate should be reviewed into main, not used directly from imports.",
+            status="candidate",
+            confidence=0.7,
+        )
         smoke["tags"] = ["organization-kb", "auto-merge", "smoke-test"]
         write_yaml_file(root / "kb" / "trusted" / "trusted-low.yaml", trusted_low)
         write_yaml_file(root / "kb" / "candidates" / "duplicate-a.yaml", duplicate_a)
@@ -74,6 +81,7 @@ class OrganizationCleanupTests(unittest.TestCase):
         write_yaml_file(root / "kb" / "candidates" / "stale-rejected.yaml", stale)
         write_yaml_file(root / "kb" / "candidates" / "similar-card.yaml", similar)
         write_yaml_file(root / "kb" / "candidates" / "auto-merge-smoke.yaml", smoke)
+        write_yaml_file(root / "kb" / "imports" / "alice" / "incoming-card.yaml", incoming)
 
     def test_cleanup_proposal_includes_duplicates_weak_cards_score_adjustments_and_review_actions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -85,19 +93,30 @@ class OrganizationCleanupTests(unittest.TestCase):
 
         self.assertTrue(proposal["ok"], proposal)
         self.assertEqual(proposal["maintenance_model"]["role"], "organization-exchange-sleep")
+        self.assertEqual(proposal["maintenance_model"]["incoming_lane"], "kb/imports")
+        self.assertEqual(proposal["maintenance_model"]["exchange_surface"], "kb/main")
+        self.assertEqual(proposal["maintenance_model"]["exchange_surface_content_maintenance"], "in-scope")
         self.assertEqual(proposal["maintenance_model"]["trusted_card_content_maintenance"], "in-scope")
         self.assertTrue(proposal["maintenance_model"]["local_final_adoption"])
+        self.assertEqual(proposal["lane_policy"]["contribution_writes"], ["kb/imports"])
+        self.assertEqual(proposal["lane_policy"]["maintenance_moves_reviewed_cards_to"], "kb/main")
+        self.assertEqual(proposal["lane_policy"]["local_download_excluded_paths"], ["kb/imports"])
         self.assertIn("mark-duplicate", action_types)
         self.assertIn("status-adjust", action_types)
         self.assertIn("confidence-adjust", action_types)
         self.assertIn("delete-card", action_types)
         self.assertIn("merge-cards", action_types)
         self.assertIn("promote-card", action_types)
+        self.assertIn("accept-import", action_types)
         promotion = next(item for item in proposal["actions"] if item.get("entry_id") == "strong-card")
+        accepted_import = next(item for item in proposal["actions"] if item.get("entry_id") == "incoming-card")
         smoke = next(item for item in proposal["actions"] if item.get("entry_id") == "auto-merge-smoke")
         self.assertEqual(promotion["proposed_status"], "trusted")
         self.assertTrue(promotion["apply_supported"])
         self.assertTrue(promotion["proposed_path"].startswith("kb/main/"))
+        self.assertEqual(accepted_import["action_type"], "accept-import")
+        self.assertEqual(accepted_import["proposed_status"], "candidate")
+        self.assertTrue(accepted_import["proposed_path"].startswith("kb/main/"))
         self.assertEqual(smoke["action_type"], "status-adjust")
         self.assertEqual(smoke["proposed_status"], "rejected")
 
@@ -162,6 +181,32 @@ class OrganizationCleanupTests(unittest.TestCase):
         self.assertFalse(original_exists)
         self.assertEqual(promoted["status"], "trusted")
         self.assertEqual(promoted["organization_cleanup"]["promoted_from"], "kb/candidates/strong-card.yaml")
+        self.assertTrue(check["ok"], check)
+
+    def test_cleanup_apply_accepts_reviewed_import_to_main_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_cleanup_repo(root)
+            proposal = build_organization_cleanup_proposal(root)
+            incoming = next(item for item in proposal["actions"] if item.get("entry_id") == "incoming-card")
+
+            result = apply_organization_cleanup_proposal(
+                root,
+                proposal,
+                allow_actions={"accept-import"},
+                allow_action_ids={incoming["action_id"]},
+                allow_promote=True,
+            )
+            moved_path = root / incoming["proposed_path"]
+            moved = load_yaml_file(moved_path)
+            original_exists = (root / "kb" / "imports" / "alice" / "incoming-card.yaml").exists()
+            check = check_organization_repository(root)
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["applied_count"], 1)
+        self.assertFalse(original_exists)
+        self.assertEqual(moved["status"], "candidate")
+        self.assertEqual(moved["organization_cleanup"]["moved_to_main_from"], "kb/imports/alice/incoming-card.yaml")
         self.assertTrue(check["ok"], check)
 
 

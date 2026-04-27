@@ -249,6 +249,23 @@ class KBArchitectTests(unittest.TestCase):
             self.assertEqual(proposal["execution_packet"]["execution_mode"], "closed-applied")
             self.assertEqual(queue["execution_summary"]["applied_count"], 1)
             self.assertEqual(queue["selected_sandbox_trial"], {})
+            self.assertTrue(record["run_report_update"]["updated"])
+            self.assertTrue(record["run_report_update"]["report_updated"])
+            final_state_path = repo_root / record["run_report_update"]["final_state_path"]
+            final_state = json.loads(final_state_path.read_text(encoding="utf-8"))
+            self.assertEqual(final_state["decision"], "applied")
+            self.assertEqual(final_state["final_status"], "applied")
+            self.assertEqual(final_state["final_execution_summary"]["applied_count"], 1)
+            report_path = repo_root / "kb" / "history" / "architecture" / "runs" / "architect-trial-applied" / "report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["selected_sandbox_trial"]["proposal_id"], selected["proposal_id"])
+            self.assertEqual(report["trial_result_summary"]["decision"], "applied")
+            self.assertEqual(report["trial_result_summary"]["final_status"], "applied")
+            self.assertEqual(report["final_execution_summary"]["applied_count"], 1)
+            self.assertEqual(
+                report["artifact_paths"]["trial_final_state_path"],
+                record["run_report_update"]["final_state_path"],
+            )
 
             second = run_architect_maintenance(repo_root, run_id="architect-trial-applied-second")
             second_queue = json.loads(queue_path.read_text(encoding="utf-8"))
@@ -314,6 +331,12 @@ class KBArchitectTests(unittest.TestCase):
             self.assertEqual(proposal["execution_packet"]["execution_mode"], "blocked")
             self.assertEqual(queue["execution_summary"]["blocked_count"], 1)
             self.assertEqual(queue["selected_sandbox_trial"], {})
+            self.assertTrue(record["run_report_update"]["updated"])
+            report_path = repo_root / "kb" / "history" / "architecture" / "runs" / "architect-trial-blocked" / "report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["trial_result_summary"]["decision"], "blocked")
+            self.assertEqual(report["trial_result_summary"]["final_execution_state"]["state"], "blocked")
+            self.assertEqual(report["final_execution_summary"]["blocked_count"], 1)
 
     def test_sandbox_trial_result_rejects_non_ready_packet(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

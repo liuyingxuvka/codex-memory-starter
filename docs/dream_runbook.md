@@ -78,7 +78,7 @@ Select a bounded, route-deduped batch of valuable executable experiments that cl
 5. Skip route-and-mode experiments that already passed with strong or moderate sandbox evidence in a prior Dream report, then write experiment, sandbox, and execution-plan records under `kb/history/dream/<run-id>/` before taking action, including execution order.
 6. Run the selected experiments sequentially, using the smallest practical validation for each one.
 7. Evaluate the result against explicit success, failure, or inconclusive criteria.
-8. Append structured history with `kb_feedback.py` or `kb_maintenance.py`. When a strong or moderate passed sandbox result validates an existing candidate or low-confidence card, include the source entry id, sandbox path, evidence grade, validation status, and a Sleep handoff with `suggested_action: update-card`.
+8. Append structured history with `kb_feedback.py` or `kb_maintenance.py`. When a strong or moderate passed sandbox result validates an existing candidate or low-confidence card, include the source entry id, sandbox path, evidence grade, validation status, and a Sleep handoff with `suggested_action: update-card`. For `scenario-replay`, include the tested-card rank, the no-tested-card baseline, whether the card improved task choice, and the specific Sleep next step.
 9. Create a candidate scaffold with `kb_capture_candidate.py` only if the outcome looks reusable, history-only is insufficient, nearby candidate backlog does not already represent the route family, and the safety tier permits it.
 10. Append one run-level Dream-process observation that summarizes preflight, selection, write-back, and process lessons.
 
@@ -100,6 +100,7 @@ Every experiment record should capture:
 - evidence grade
 - validation result
 - Sleep handoff
+- structured Sleep handoff detail when the sandbox is judging a specific card
 - Architect handoff
 - source entry id and handoff action when an existing card was validated
 
@@ -109,6 +110,7 @@ Every execution plan should capture checkpoint status for preflight, opportunity
 
 - route-first retrieval experiments using `kb_search.py`
 - retrieval A/B sandbox experiments that write only under `kb/history/dream/<run-id>/sandbox/`
+- scenario-replay sandbox experiments that replay historical or card-derived task scenarios with and without a tested candidate card, still writing only under `kb/history/dream/<run-id>/sandbox/`
 - read-only validation of existing candidate or low-confidence cards
 - taxonomy-gap inspection using `kb_taxonomy.py --gaps-only`
 - proposal inspection using `kb_consolidate.py` and `kb_proposals.py`
@@ -163,6 +165,7 @@ This runner already:
 - writes `plan.json`, `preflight.json`, `opportunities.json`, `experiments.json`, `execution_plan.json`, and `report.json` under `kb/history/dream/<run-id>/`
 - writes per-experiment sandbox artifacts under `kb/history/dream/<run-id>/sandbox/`
 - validates the selected bounded batch of valuable executable experiments with local search, in the order listed in the execution plan
+- keeps `retrieval-ab` for route and gap checks, and uses `scenario-replay` for existing candidate or low-confidence card validation so Sleep sees the baseline, tested-card rank, task-choice delta, and next review action
 - writes history observations and candidate-only scaffolds when justified
 - writes a run-level Dream-process observation after completed runs
 
@@ -206,6 +209,7 @@ Report:
 - experiments executed in sequence
 - result classifications: success, failure, or inconclusive
 - sandbox paths, allowed writes, evidence grades, validation results, and Sleep/Architect handoff
+- for scenario-replay, the tested-card rank, baseline without the tested card, task-choice delta, and Sleep next step
 - history events written
 - candidates created, if any
 - what still requires live-task confirmation

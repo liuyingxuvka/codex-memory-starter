@@ -12,7 +12,7 @@ from local_kb.org_sources import (
     guess_organization_source_id,
     validate_organization_repo,
 )
-from local_kb.store import write_yaml_file
+from local_kb.store import load_organization_entries, write_yaml_file
 
 
 class OrganizationSourceTests(unittest.TestCase):
@@ -51,6 +51,14 @@ class OrganizationSourceTests(unittest.TestCase):
 
         self.assertTrue(result["ok"], result["errors"])
         self.assertEqual(result["organization_id"], "sandbox")
+        self.assertEqual(result["layout"], "legacy-trusted-candidates")
+        self.assertEqual(result["target_layout"], "main-imports")
+        self.assertTrue(result["legacy_compatibility"])
+        self.assertIn("compatibility only", result["layout_message"])
+        self.assertEqual(result["incoming_lane_path"], "kb/imports")
+        self.assertEqual(result["exchange_surface_path"], "kb/main")
+        self.assertEqual(result["local_download_paths"], ["kb/trusted", "kb/candidates"])
+        self.assertEqual(result["local_download_excluded_paths"], ["kb/imports"])
         self.assertEqual(result["trusted_count"], 1)
         self.assertEqual(result["candidate_count"], 1)
         self.assertEqual(result["skill_count"], 1)
@@ -85,10 +93,51 @@ class OrganizationSourceTests(unittest.TestCase):
 
         self.assertTrue(result["ok"], result["errors"])
         self.assertEqual(result["layout"], "main-imports")
+        self.assertEqual(result["target_layout"], "main-imports")
+        self.assertFalse(result["legacy_compatibility"])
+        self.assertEqual(result["incoming_lane_path"], "kb/imports")
+        self.assertEqual(result["exchange_surface_path"], "kb/main")
+        self.assertEqual(result["local_download_paths"], ["kb/main"])
+        self.assertEqual(result["local_download_excluded_paths"], ["kb/imports"])
         self.assertEqual(result["main_count"], 3)
         self.assertEqual(result["main_active_count"], 2)
+        self.assertEqual(result["imports_count"], 0)
+        self.assertEqual(result["main_status_counts"]["trusted"], 1)
+        self.assertEqual(result["main_status_counts"]["candidate"], 1)
         self.assertEqual(result["trusted_count"], 1)
         self.assertEqual(result["candidate_count"], 1)
+
+    def test_local_organization_download_reads_main_not_imports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_yaml_file(
+                root / "khaos_org_kb.yaml",
+                {
+                    "kind": "khaos-organization-kb",
+                    "schema_version": 1,
+                    "organization_id": "sandbox",
+                    "kb": {
+                        "main_path": "kb/main",
+                        "imports_path": "kb/imports",
+                    },
+                    "skills": {
+                        "registry_path": "skills/registry.yaml",
+                        "candidates_path": "skills/candidates",
+                    },
+                },
+            )
+            write_yaml_file(root / "kb" / "main" / "main-card.yaml", {"id": "main-card", "status": "trusted"})
+            write_yaml_file(root / "kb" / "imports" / "alice" / "import-card.yaml", {"id": "import-card", "status": "candidate"})
+            write_yaml_file(root / "skills" / "registry.yaml", {"skills": []})
+            (root / "skills" / "candidates").mkdir(parents=True)
+
+            validation = validate_organization_repo(root)
+            entries = load_organization_entries(root, "sandbox")
+            entry_ids = [entry.data["id"] for entry in entries]
+
+        self.assertTrue(validation["ok"], validation["errors"])
+        self.assertEqual(validation["imports_count"], 1)
+        self.assertEqual(entry_ids, ["main-card"])
 
     def test_validate_organization_repo_rejects_missing_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

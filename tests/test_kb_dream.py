@@ -363,6 +363,7 @@ class DreamMaintenanceTests(unittest.TestCase):
             experiments_path = repo_root / result["artifact_paths"]["experiments_path"]
             experiments_payload = json.loads(experiments_path.read_text(encoding="utf-8"))
             self.assertEqual(experiments_payload["experiments"][0]["classification"], "candidate-created")
+            self.assertEqual(experiments_payload["experiments"][0]["sandbox_mode"], "retrieval-ab")
             self.assertEqual(experiments_payload["experiments"][0]["safety_tier"], "workspace-only")
             self.assertIn("validation_plan", experiments_payload["experiments"][0])
 
@@ -535,6 +536,32 @@ class DreamMaintenanceTests(unittest.TestCase):
                     "updated_at": "2026-04-24",
                 },
             )
+            write_jsonl(
+                history_path,
+                [
+                    {
+                        "event_id": "candidate-replay-source",
+                        "event_type": "observation",
+                        "created_at": "2026-04-24T09:00:00+00:00",
+                        "source": {"kind": "task", "agent": "worker-1"},
+                        "target": {
+                            "kind": "task-observation",
+                            "route_hint": ["engineering", "architecture", "refactor"],
+                            "task_summary": "Need a safe refactor decision path for architecture work",
+                        },
+                        "rationale": "retrieval=weak",
+                        "context": {
+                            "hit_quality": "weak",
+                            "suggested_action": "none",
+                            "predictive_observation": {
+                                "scenario": "When architecture work needs a refactor decision.",
+                                "action_taken": "Look for candidate guidance before choosing a refactor path.",
+                                "observed_result": "The candidate may clarify the task choice.",
+                            },
+                        },
+                    }
+                ],
+            )
 
             result = run_dream_maintenance(
                 repo_root=repo_root,
@@ -548,12 +575,17 @@ class DreamMaintenanceTests(unittest.TestCase):
             self.assertTrue(result["experiments"][0]["is_executable"])
             self.assertEqual(result["experiments"][0]["classification"], "validated")
             self.assertEqual(result["experiments"][0]["source_entry_id"], "cand-entry-validation")
-            self.assertEqual(result["experiments"][0]["sandbox_mode"], "retrieval-ab")
+            self.assertEqual(result["experiments"][0]["sandbox_mode"], "scenario-replay")
             self.assertEqual(result["experiments"][0]["evidence_grade"], "strong")
             self.assertEqual(result["experiments"][0]["validation_result"]["status"], "passed")
+            self.assertIn("scenario_replay", result["experiments"][0])
+            self.assertTrue(
+                result["experiments"][0]["scenario_replay"]["decision_delta"]["candidate_improves_task_choice"]
+            )
+            self.assertTrue(result["experiments"][0]["sleep_handoff_detail"]["sleep_review_ready"])
             self.assertIn("sandbox_path", result["experiments"][0])
             self.assertIn("allowed_writes", result["experiments"][0])
-            self.assertIn("Sleep", result["experiments"][0]["sleep_handoff"])
+            self.assertIn("scenario-replay", result["experiments"][0]["sleep_handoff"])
             self.assertIn("Architect", result["experiments"][0]["architect_handoff"])
             self.assertEqual(result["created_candidate_count"], 0)
 
@@ -565,14 +597,20 @@ class DreamMaintenanceTests(unittest.TestCase):
             )
             sandbox_payload = json.loads(sandbox_path.read_text(encoding="utf-8"))
             self.assertEqual(sandbox_payload["kind"], "local-kb-dream-sandbox-experiment")
-            self.assertEqual(sandbox_payload["sandbox_mode"], "retrieval-ab")
+            self.assertEqual(sandbox_payload["sandbox_mode"], "scenario-replay")
             self.assertFalse(sandbox_payload["trusted_card_mutation"])
             self.assertEqual(sandbox_payload["source_entry_id"], "cand-entry-validation")
             self.assertEqual(sandbox_payload["evidence_grade"], "strong")
             self.assertEqual(sandbox_payload["validation_result"]["status"], "passed")
             self.assertEqual(sandbox_payload["allowed_writes"], result["experiments"][0]["allowed_writes"])
             self.assertEqual(sandbox_payload["sandbox_path"], result["experiments"][0]["sandbox_path"])
-            self.assertEqual([item["name"] for item in sandbox_payload["variants"]], ["target-route", "comparison-route"])
+            self.assertEqual([item["name"] for item in sandbox_payload["variants"]], ["without-tested-card", "with-tested-card"])
+            scenario_replay = sandbox_payload["scenario_replay"]
+            self.assertEqual(scenario_replay["candidate_card"]["entry_id"], "cand-entry-validation")
+            self.assertEqual(scenario_replay["decision_delta"]["candidate_rank"], 1)
+            self.assertTrue(scenario_replay["decision_delta"]["candidate_improves_task_choice"])
+            self.assertEqual(scenario_replay["decision_delta"]["baseline_exact_route_hit_count"], 0)
+            self.assertEqual(sandbox_payload["sleep_handoff_detail"]["candidate_entry_id"], "cand-entry-validation")
 
             history_events = [
                 json.loads(line)
@@ -591,13 +629,20 @@ class DreamMaintenanceTests(unittest.TestCase):
             self.assertEqual(dream_validation["entry_confidence"], 0.4)
             self.assertFalse(dream_validation["trusted_card_mutation"])
             self.assertEqual(dream_validation["handoff_action"], "update-card")
-            self.assertIn("Sleep", dream_validation["sleep_handoff"])
+            self.assertIn("scenario-replay", dream_validation["sleep_handoff"])
+            self.assertTrue(dream_validation["sleep_handoff_detail"]["sleep_review_ready"])
+            self.assertEqual(dream_validation["scenario_replay"]["decision_delta"]["candidate_rank"], 1)
+            contrastive = experiment_event["context"]["predictive_observation"]["contrastive_evidence"]
+            self.assertIn("without the tested card", contrastive["previous_action"])
+            self.assertIn("with the tested card", contrastive["revised_action"])
 
             execution_plan_path = repo_root / result["artifact_paths"]["execution_plan_path"]
             execution_plan_payload = json.loads(execution_plan_path.read_text(encoding="utf-8"))
             self.assertEqual(execution_plan_payload["selected_experiment"]["kind"], "entry-validation")
             self.assertEqual(execution_plan_payload["selected_experiment"]["safety_tier"], "read-only")
-            self.assertEqual(execution_plan_payload["selected_experiment"]["sandbox_mode"], "retrieval-ab")
+            self.assertEqual(execution_plan_payload["selected_experiment"]["sandbox_mode"], "scenario-replay")
+            self.assertIn("scenario-replay", execution_plan_payload["policy"]["sandbox_experiment_modes"])
+            self.assertIn("retrieval-ab", execution_plan_payload["policy"]["sandbox_experiment_modes"])
             self.assertEqual(
                 execution_plan_payload["policy"]["sandbox_allowed_writes"],
                 ["kb/history/dream/kb-dream-entry-validation/sandbox/"],

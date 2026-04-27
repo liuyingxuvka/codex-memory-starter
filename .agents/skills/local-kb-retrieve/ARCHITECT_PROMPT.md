@@ -29,6 +29,12 @@ The runner is not the code editor. Its job is to produce an execution packet for
 
 Use `docs/maintenance_agent_worldview.md` as the compact world model for this pass. Architect is the mechanism engineer: it improves prompts, runbooks, automation, installer checks, rollback, validation, and queue governance. A sandbox-ready packet is not approval by itself; the follow-on agent still has to inspect the packet, keep the trial inside its allowed writes, run validation, and either merge or block the proposal with a concrete reason.
 
+Retrieval-route mechanism signals:
+
+- Treat `review-code-change` and `review-observation-evidence` signals for `system/knowledge-library/retrieval` as mechanism evidence about how agents find, interpret, and write back KB context. They are not requests to create cards, promote candidates, or rewrite trusted content.
+- First check whether the active prompt/runbook/Skill wording already tells agents the correct retrieval parameter names, route-hint/path-hint compatibility, preflight duty, postflight write-back duty, and proposal-only handoff boundary. If the fix is wording-only, keep the packet prompt-scoped; if it requires search, schema, scoring, or persistence behavior, classify it as patch work instead of sandbox-applying it from a prompt packet.
+- Merge repeated retrieval-route signals into one queue lane unless the current evidence shows a different mechanism failure mode, such as search interface mismatch, route navigation/scoring behavior, postflight observation capture, or proposal handoff validation.
+
 Mandatory execution contract:
 
 1. Before the first stateful command, create a visible plan with every checkpoint below.
