@@ -22,15 +22,19 @@ A local predictive memory system that helps AI agents reuse experience across ta
 
 ## Visual concept
 
-A bright memory-system map showing task request, path-first retrieval, local model-card vault, guided execution, observation write-back, maintenance cycles, boundaries, and optional organization source.
+A bright memory observatory where task signals route through fiber-optic paths into model-card crystals, guide an agent work path, and return observations through a maintenance loop with private/public boundaries.
+
+## Material language
+
+White stone local vault, crystalline model-card tiles, woven fabric knowledge map, copper version rails, and fiber-optic root pathways.
 
 ## Image keywords
 
-bright conceptual schematic, path-first retrieval, predictive model cards, local file vault, observation write-back, maintenance cycles
+premium workflow visual, local predictive memory, model-card crystals, retrieval path, observation write-back, maintenance loop
 
 ## Generation method
 
-Direct project-specific text-to-image generation using a bright conceptual schematic direction. This hero is not a reused SVG, HTML, Canvas, Pillow, robot-screen scene, or dark dashboard template.
+Direct project-specific text-to-image generation using a premium art-directed product-object workflow direction. The prompt used observatory, vault, crystal, fabric-map, copper-rail, and fiber-root metaphors rather than a generic AI dashboard or robot scene.
 
 ## File paths
 
@@ -40,4 +44,4 @@ Direct project-specific text-to-image generation using a bright conceptual schem
 
 ## README insertion position
 
-Updated the existing README HERO block after the first H1 heading.
+Existing README HERO block after the first H1 heading; image file replaced without rewriting the README body.
