@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="840" viewBox="0 0 1600 840">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a1020"/>
+      <stop offset="100%" stop-color="#24305e"/>
+    </linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="40"/></filter>
+    <filter id="shadow"><feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.35"/></filter>
+  </defs>
+  <rect width="1600" height="840" fill="url(#bg)"/>
+  <circle cx="1180" cy="205" r="250" fill="#8ec5ff" opacity="0.16" filter="url(#blur)"/>
+  <circle cx="1320" cy="610" r="220" fill="#f7a072" opacity="0.14" filter="url(#blur)"/>
+  <text x="96" y="180" fill="#f8fbff" font-family="Segoe UI, Arial, sans-serif" font-size="54" font-weight="700">Khaos Brain</text>
+  <foreignObject x="96" y="259" width="520" height="120">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: Segoe UI, Arial, sans-serif; font-size:31px; line-height:1.25; color:#e5eff7;">A local predictive memory system that helps AI agents reuse experience across tasks.</div>
+  </foreignObject>
+  <text x="96" y="365" fill="#f5fcff" font-family="Segoe UI, Arial, sans-serif" font-size="21">Recall / Cards / Maintenance</text>
+  <rect x="580" y="108" width="910" height="622" rx="42" fill="#ffffff" opacity="0.12" stroke="#ffffff" stroke-opacity="0.30" filter="url(#shadow)"/>
+  <rect x="610" y="138" width="850" height="52" rx="24" fill="#ffffff" opacity="0.10"/>
+  <rect x="640" y="240" width="295" height="122" rx="28" fill="#0a131e" opacity="0.78" stroke="#ffffff" stroke-opacity="0.34"/>
+  <rect x="641" y="241" width="293" height="10" rx="5" fill="#8ec5ff" opacity="0.75"/>
+  <circle cx="692" cy="298" r="26" fill="#8ec5ff" opacity="0.40" stroke="#8ec5ff" stroke-opacity="0.85"/>
+  <text x="736" y="302" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="25" font-weight="700">Retrieve</text>
+  <rect x="1065" y="240" width="295" height="122" rx="28" fill="#0a131e" opacity="0.78" stroke="#ffffff" stroke-opacity="0.34"/>
+  <rect x="1066" y="241" width="293" height="10" rx="5" fill="#f7a072" opacity="0.75"/>
+  <circle cx="1117" cy="298" r="26" fill="#f7a072" opacity="0.40" stroke="#f7a072" stroke-opacity="0.85"/>
+  <text x="1161" y="302" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="25" font-weight="700">Work</text>
+  <rect x="640" y="500" width="295" height="122" rx="28" fill="#0a131e" opacity="0.78" stroke="#ffffff" stroke-opacity="0.34"/>
+  <rect x="641" y="501" width="293" height="10" rx="5" fill="#8ec5ff" opacity="0.75"/>
+  <circle cx="692" cy="558" r="26" fill="#8ec5ff" opacity="0.40" stroke="#8ec5ff" stroke-opacity="0.85"/>
+  <text x="736" y="562" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="25" font-weight="700">Record</text>
+  <rect x="1065" y="500" width="295" height="122" rx="28" fill="#0a131e" opacity="0.78" stroke="#ffffff" stroke-opacity="0.34"/>
+  <rect x="1066" y="501" width="293" height="10" rx="5" fill="#f7a072" opacity="0.75"/>
+  <circle cx="1117" cy="558" r="26" fill="#f7a072" opacity="0.40" stroke="#f7a072" stroke-opacity="0.85"/>
+  <text x="1161" y="562" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="25" font-weight="700">Maintain</text>
+  <line x1="935" y1="301" x2="1065" y2="301" stroke="#8ec5ff" stroke-width="4" opacity="0.75"/>
+  <line x1="788" y1="362" x2="788" y2="500" stroke="#8ec5ff" stroke-width="4" opacity="0.75"/>
+  <line x1="1212" y1="362" x2="1212" y2="500" stroke="#8ec5ff" stroke-width="4" opacity="0.75"/>
+  <line x1="935" y1="561" x2="1065" y2="561" stroke="#8ec5ff" stroke-width="4" opacity="0.75"/>
+  <circle cx="1000" cy="431" r="110" fill="#8ec5ff" opacity="0.22" stroke="#8ec5ff" stroke-opacity="0.70" stroke-width="3"/>
+  <circle cx="1000" cy="431" r="72" fill="#ffffff" opacity="0.10" stroke="#ffffff" stroke-opacity="0.45"/>
+  <text x="1000" y="438" text-anchor="middle" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700">CORE LOOP</text>
+</svg>

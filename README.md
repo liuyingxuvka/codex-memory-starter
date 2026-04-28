@@ -1,5 +1,15 @@
 # Khaos Brain
 
+<!-- README HERO START -->
+<p align="center">
+  <img src="./assets/readme-hero/hero.png" alt="Khaos Brain concept hero image" width="100%" />
+</p>
+
+<p align="center">
+  <strong>A local predictive memory system that helps AI agents reuse experience across tasks.</strong>
+</p>
+<!-- README HERO END -->
+
 - Repository head (`main`) / 仓库主线（`main`）: `v0.4.4`
 - Latest released version / 最新已发布版本: `v0.4.4`
 - Project name / 项目名称: `Khaos Brain`
