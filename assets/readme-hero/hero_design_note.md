@@ -22,15 +22,15 @@ A local predictive memory system that helps AI agents reuse experience across ta
 
 ## Visual concept
 
-A local memory vault for AI agents, with path-first retrieval, inspectable model cards, file-based storage, Git history, private/public boundaries, and maintenance cycles.
+A bright memory-system map showing task request, path-first retrieval, local model-card vault, guided execution, observation write-back, maintenance cycles, boundaries, and optional organization source.
 
 ## Image keywords
 
-predictive model cards, path-first retrieval, local file vault, Git history, maintenance rhythm
+bright conceptual schematic, path-first retrieval, predictive model cards, local file vault, observation write-back, maintenance cycles
 
 ## Generation method
 
-Direct project-specific text-to-image generation. This hero is not a reused SVG, HTML, Canvas, Pillow, or card-grid template.
+Direct project-specific text-to-image generation using a bright conceptual schematic direction. This hero is not a reused SVG, HTML, Canvas, Pillow, robot-screen scene, or dark dashboard template.
 
 ## File paths
 
