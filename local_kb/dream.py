@@ -1653,424 +1653,434 @@ def run_dream_maintenance(
     run_dir = dream_run_dir(repo_root, resolved_run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
     lane_lock = acquire_lane_lock(repo_root, "kb-dream", run_id=resolved_run_id)
-    write_lane_status(repo_root, "kb-dream", "running", run_id=resolved_run_id)
+    lock_released = False
+    try:
+        write_lane_status(repo_root, "kb-dream", "running", run_id=resolved_run_id)
 
-    lane_guard = build_dream_guard(repo_root)
-    plan_payload = {
-        "schema_version": DREAM_SCHEMA_VERSION,
-        "kind": "local-kb-dream-plan",
-        "run_id": resolved_run_id,
-        "generated_at": generated_at,
-        "lane_guard": lane_guard,
-    }
-    write_json_file(run_dir / PLAN_FILENAME, plan_payload)
+        lane_guard = build_dream_guard(repo_root)
+        plan_payload = {
+            "schema_version": DREAM_SCHEMA_VERSION,
+            "kind": "local-kb-dream-plan",
+            "run_id": resolved_run_id,
+            "generated_at": generated_at,
+            "lane_guard": lane_guard,
+        }
+        write_json_file(run_dir / PLAN_FILENAME, plan_payload)
 
-    if lane_guard["blocked"]:
-        skipped_event_id = _write_skip_event(repo_root, resolved_run_id, lane_guard)
-        write_lane_status(repo_root, "kb-dream", "skipped", run_id=resolved_run_id)
+        if lane_guard["blocked"]:
+            skipped_event_id = _write_skip_event(repo_root, resolved_run_id, lane_guard)
+            write_lane_status(repo_root, "kb-dream", "skipped", run_id=resolved_run_id)
+            result = {
+                "schema_version": DREAM_SCHEMA_VERSION,
+                "kind": DREAM_REPORT_KIND,
+                "run_id": resolved_run_id,
+                "generated_at": generated_at,
+                "status": "skipped",
+                "reason": "maintenance-lane-active",
+                "lane_guard": lane_guard,
+                "history_event_ids": [skipped_event_id],
+                "artifact_paths": {
+                    "run_dir": relative_repo_path(repo_root, run_dir),
+                    "plan_path": relative_repo_path(repo_root, run_dir / PLAN_FILENAME),
+                    "report_path": relative_repo_path(repo_root, run_dir / REPORT_FILENAME),
+                },
+            }
+            result["lane_lock"] = lane_lock
+            result["lock_release"] = release_lane_lock(repo_root, "kb-dream", run_id=resolved_run_id)
+            lock_released = True
+            write_json_file(run_dir / REPORT_FILENAME, result)
+            return result
+
+        preflight = _build_dream_preflight(repo_root, run_id=resolved_run_id, generated_at=generated_at)
+        write_json_file(run_dir / PREFLIGHT_FILENAME, preflight)
+        plan_payload["preflight_path"] = relative_repo_path(repo_root, run_dir / PREFLIGHT_FILENAME)
+        plan_payload["preflight_matched_entry_ids"] = list(preflight["matched_entry_ids"])
+        plan_payload["preflight_matched_entry_count"] = int(preflight["matched_entry_count"])
+        write_json_file(run_dir / PLAN_FILENAME, plan_payload)
+
+        entries = load_entries(repo_root)
+        history_events = load_history_events(repo_root, max_events=max_events)
+        indexed_events = {event["event_id"]: event for event in history_events}
+        consolidation = consolidate_history(
+            repo_root=repo_root,
+            run_id=f"{resolved_run_id}-source",
+            max_events=max_events,
+            apply_mode=APPLY_MODE_NONE,
+        )
+        opportunities = build_route_candidate_opportunities(consolidation["actions"], entries)
+        opportunities.extend(build_taxonomy_gap_opportunities(repo_root, entries))
+        opportunities.extend(build_entry_validation_opportunities(repo_root, entries))
+        opportunities = _prepare_opportunities(opportunities)
+        prior_successful_sandbox_keys = _load_prior_successful_sandbox_keys(
+            repo_root,
+            current_run_id=resolved_run_id,
+        )
+        opportunities = sorted(
+            opportunities,
+            key=lambda item: (
+                -int(bool(item.get("is_executable", False))),
+                -_selection_priority(item),
+                -int(item.get("executability_score", 0) or 0),
+                -int(item["opportunity_score"]),
+                item["kind"],
+                item["route_ref"],
+            ),
+        )
+        write_json_file(
+            run_dir / OPPORTUNITIES_FILENAME,
+            {
+                "schema_version": DREAM_SCHEMA_VERSION,
+                "kind": "local-kb-dream-opportunities",
+                "run_id": resolved_run_id,
+                "generated_at": generated_at,
+                "opportunity_count": len(opportunities),
+                "opportunities": opportunities,
+            },
+        )
+
+        executable_opportunities = [item for item in opportunities if item.get("is_executable", False)]
+        selected = _select_valuable_experiments(
+            opportunities,
+            prior_successful_sandbox_keys=prior_successful_sandbox_keys,
+        )
+        skipped_prior_success_count = sum(
+            1
+            for item in opportunities
+            if item.get("selection_status") == "skipped-prior-sandbox-success"
+        )
+        write_json_file(
+            run_dir / OPPORTUNITIES_FILENAME,
+            {
+                "schema_version": DREAM_SCHEMA_VERSION,
+                "kind": "local-kb-dream-opportunities",
+                "run_id": resolved_run_id,
+                "generated_at": generated_at,
+                "opportunity_count": len(opportunities),
+                "prior_sandbox_success_count": len(prior_successful_sandbox_keys),
+                "skipped_prior_sandbox_success_count": skipped_prior_success_count,
+                "opportunities": opportunities,
+            },
+        )
+        planned_experiments = [
+            {
+                "sequence_index": sequence_index,
+                "route_ref": item["route_ref"],
+                "kind": item["kind"],
+                "candidate_creation_mode": str(item.get("candidate_creation_mode", "") or ""),
+                "hypothesis": item["hypothesis"],
+                "allowed_action_surface": item["allowed_action_surface"],
+                "experiment_design": item["experiment_design"],
+                "validation_plan": item["validation_plan"],
+                "success_criteria": item["success_criteria"],
+                "failure_criteria": item["failure_criteria"],
+                "safety_tier": item["safety_tier"],
+                "rollback_plan": item["rollback_plan"],
+                "permitted_write_back": item["permitted_write_back"],
+                "sandbox_mode": _sandbox_mode_for_opportunity(item),
+                "allowed_writes": _sandbox_allowed_writes(repo_root, resolved_run_id),
+                "is_executable": item["is_executable"],
+                "executability_score": item["executability_score"],
+                "status": "planned",
+            }
+            for sequence_index, item in enumerate(selected, start=1)
+        ]
+        write_json_file(
+            run_dir / EXPERIMENTS_FILENAME,
+            {
+                "schema_version": DREAM_SCHEMA_VERSION,
+                "kind": "local-kb-dream-experiments",
+                "run_id": resolved_run_id,
+                "generated_at": generated_at,
+                "experiment_count": len(planned_experiments),
+                "experiments": planned_experiments,
+            },
+        )
+        execution_plan = _build_execution_plan(
+            repo_root,
+            run_id=resolved_run_id,
+            generated_at=generated_at,
+            opportunity_count=len(opportunities),
+            executable_opportunity_count=len(executable_opportunities),
+            selected=selected,
+            skipped_prior_sandbox_success_count=skipped_prior_success_count,
+        )
+        write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
+        plan_payload["execution_plan_path"] = relative_repo_path(repo_root, run_dir / EXECUTION_PLAN_FILENAME)
+        plan_payload["executable_opportunity_count"] = len(executable_opportunities)
+        plan_payload["valuable_opportunity_count"] = len(selected)
+        plan_payload["skipped_prior_sandbox_success_count"] = skipped_prior_success_count
+        write_json_file(run_dir / PLAN_FILENAME, plan_payload)
+
+        experiment_results: list[dict[str, Any]] = []
+        created_candidates: list[dict[str, Any]] = []
+        history_event_ids: list[str] = []
+
+        for sequence_index, opportunity in enumerate(selected, start=1):
+            search_context = _search_context(
+                repo_root,
+                route_ref=opportunity["route_ref"],
+                query=_validation_query(opportunity),
+            )
+            exact_coverage_exists = (
+                opportunity["exact_route_entry_count"] > 0
+                or search_context["exact_route_hit_count"] > 0
+            )
+            created_candidate: dict[str, Any] | None = None
+            classification = "history-only"
+            outcome = ""
+            comment = ""
+
+            if opportunity["kind"] == "route-candidate" and exact_coverage_exists:
+                classification = "already-covered"
+                outcome = f"Route {opportunity['route_title']} already has exact local coverage; no dream candidate was created."
+                comment = "Dream validation found an exact route match, so this remained a history-only note."
+            elif opportunity["kind"] == "route-candidate" and opportunity["candidate_creation_mode"] == "sleep-eligible":
+                classification = "sleep-owned"
+                outcome = (
+                    f"Route {opportunity['route_title']} is already eligible for sleep new-candidate apply; "
+                    "dream mode left candidate creation to sleep maintenance."
+                )
+                comment = "Dream mode did not duplicate a sleep-owned candidate action."
+            elif opportunity["kind"] == "route-candidate" and opportunity["candidate_creation_mode"] == "candidate-backlog":
+                classification = "candidate-backlog"
+                sibling_counts = opportunity.get("sibling_status_counts", {})
+                if not isinstance(sibling_counts, dict):
+                    sibling_counts = {}
+                outcome = (
+                    f"Route {opportunity['route_title']} lacks exact local coverage, but adjacent candidate backlog "
+                    f"already exists in the same route family: {sibling_counts}."
+                )
+                comment = (
+                    "Dream mode kept this history-only and left the route family for Sleep to merge, reject, "
+                    "narrow, or consolidate instead of creating another candidate."
+                )
+            elif opportunity["kind"] == "route-candidate" and opportunity["candidate_creation_mode"] == "dream-adjacent":
+                if search_context["sibling_route_hit_count"] == 0:
+                    classification = "inconclusive"
+                    outcome = (
+                        f"Route {opportunity['route_title']} still lacks exact coverage, but the dream validation "
+                        "did not find enough adjacent search support for a scaffold."
+                    )
+                    comment = "Kept this run history-only because adjacent route support was weaker than expected."
+                else:
+                    created_candidate, creation_reason = _create_dream_candidate(
+                        repo_root,
+                        action=opportunity["source_action"],
+                        run_id=resolved_run_id,
+                        generated_at=generated_at,
+                        creation_mode=opportunity["candidate_creation_mode"],
+                        indexed_events=indexed_events,
+                    )
+                    if created_candidate is not None:
+                        classification = "candidate-created"
+                        outcome = (
+                            f"Created a bounded candidate scaffold for {opportunity['route_title']} via "
+                            f"{opportunity['candidate_creation_mode']} validation."
+                        )
+                        comment = "Dream mode validated the route with local search and adjacent evidence before writing only to candidates."
+                        created_candidates.append(created_candidate)
+                    else:
+                        classification = "already-exists"
+                        outcome = creation_reason
+                        comment = "Dream mode skipped duplicate candidate creation and left a history note instead."
+            elif opportunity["kind"] == "entry-validation":
+                source_entry_id = str(opportunity.get("source_entry_id", "") or "unknown")
+                if search_context["exact_route_hit_count"] > 0:
+                    classification = "validated"
+                    outcome = (
+                        f"Validated existing card {source_entry_id} for {opportunity['route_title']} "
+                        "with exact route-local retrieval evidence."
+                    )
+                    comment = "Dream mode treated this as read-only evidence for later sleep review."
+                elif search_context["sibling_route_hit_count"] > 0:
+                    classification = "adjacent-support"
+                    outcome = (
+                        f"Found adjacent support for existing card {source_entry_id}, but no exact route-local hit."
+                    )
+                    comment = "Kept this as history-only evidence because support was adjacent rather than exact."
+                else:
+                    classification = "inconclusive"
+                    outcome = (
+                        f"Validated existing card {source_entry_id}, but the local search did not find grounded support."
+                    )
+                    comment = "The experiment was executable, but its result should not strengthen the card."
+            else:
+                classification = "history-only"
+                outcome = (
+                    f"Inspected {opportunity['route_title']} as a dream-mode opportunity and left the result in history only."
+                )
+                comment = "The route stayed provisional because dream mode did not have enough grounded evidence for a candidate scaffold."
+
+            action_taken = (
+                f"Ran a bounded dream validation for {opportunity['route_title']}: local search with path hint "
+                f"{opportunity['route_ref']} and query '{search_context['query']}'."
+            )
+            observed_result = outcome
+            if classification == "candidate-created":
+                operational_use = (
+                    "Treat the dream-generated card as a candidate-only scaffold and wait for live-task confirmation "
+                    "before any promotion."
+                )
+            elif opportunity["kind"] == "taxonomy-gap":
+                operational_use = "Use this result to drive later taxonomy review without changing trusted memory during dream mode."
+            else:
+                operational_use = "Keep this result in history and revisit the route during a later live task or sleep pass."
+            reuse_judgment = (
+                "Reusable when the same route keeps appearing without exact card coverage but nearby sibling routes suggest the gap is meaningful."
+            )
+
+            experiment = {
+                "sequence_index": sequence_index,
+                "kind": opportunity["kind"],
+                "route_ref": opportunity["route_ref"],
+                "route_title": opportunity["route_title"],
+                "candidate_creation_mode": str(opportunity.get("candidate_creation_mode", "") or ""),
+                "hypothesis": opportunity["hypothesis"],
+                "allowed_action_surface": opportunity["allowed_action_surface"],
+                "experiment_design": opportunity["experiment_design"],
+                "validation_plan": opportunity["validation_plan"],
+                "success_criteria": opportunity["success_criteria"],
+                "failure_criteria": opportunity["failure_criteria"],
+                "safety_tier": opportunity["safety_tier"],
+                "rollback_plan": opportunity["rollback_plan"],
+                "permitted_write_back": opportunity["permitted_write_back"],
+                "is_executable": opportunity["is_executable"],
+                "executability_score": opportunity["executability_score"],
+                "classification": classification,
+                "search_context": search_context,
+                "outcome": outcome,
+                "comment": comment,
+                "action_taken": action_taken,
+                "observed_result": observed_result,
+                "operational_use": operational_use,
+                "reuse_judgment": reuse_judgment,
+                "created_candidate": created_candidate,
+            }
+            sandbox_result = _run_dream_sandbox(
+                repo_root,
+                run_id=resolved_run_id,
+                generated_at=generated_at,
+                sequence_index=sequence_index,
+                opportunity=opportunity,
+                search_context=search_context,
+                classification=classification,
+                history_events=history_events,
+            )
+            experiment.update(sandbox_result)
+            if experiment.get("sandbox_mode") == SANDBOX_MODE_SCENARIO_REPLAY:
+                replay = experiment.get("scenario_replay", {})
+                decision = replay.get("decision_delta", {}) if isinstance(replay, dict) else {}
+                action_taken = (
+                    f"Ran a scenario-replay Dream sandbox for {opportunity['route_title']}: compared local search "
+                    "without the tested card against search with the tested card using a historical or card-derived task scenario."
+                )
+                observed_result = str(decision.get("reason", "") or observed_result)
+                operational_use = (
+                    "Use the scenario-replay delta as Sleep review input for the tested candidate; do not treat it "
+                    "as trusted-card promotion evidence without later live-task confirmation."
+                )
+                experiment["action_taken"] = action_taken
+                experiment["observed_result"] = observed_result
+                experiment["operational_use"] = operational_use
+            observation_event_id = _record_dream_observation(
+                repo_root,
+                run_id=resolved_run_id,
+                opportunity=opportunity,
+                experiment=experiment,
+                created_candidate=created_candidate,
+            )
+            experiment["history_event_id"] = observation_event_id
+            history_event_ids.append(observation_event_id)
+            experiment_results.append(experiment)
+
+        if selected and experiment_results:
+            classifications = ", ".join(sorted({item["classification"] for item in experiment_results}))
+            _set_checkpoint_status(
+                execution_plan,
+                "validation",
+                "completed",
+                f"Validation completed with classifications: {classifications}.",
+            )
+            _set_checkpoint_status(
+                execution_plan,
+                "experiment-observation",
+                "completed",
+                f"Wrote {len(experiment_results)} route-specific experiment observation(s).",
+            )
+
+        run_observation_event_id = _record_dream_run_observation(
+            repo_root,
+            run_id=resolved_run_id,
+            preflight=preflight,
+            opportunity_count=len(opportunities),
+            selected=selected,
+            experiment_results=experiment_results,
+            created_candidates=created_candidates,
+        )
+        history_event_ids.append(run_observation_event_id)
+        _set_checkpoint_status(
+            execution_plan,
+            "run-observation",
+            "completed",
+            f"Wrote run-level Dream-process observation {run_observation_event_id}.",
+        )
+        _set_checkpoint_status(execution_plan, "report", "completed", "Report payload prepared.")
+        execution_plan["status"] = "completed"
+        execution_plan["completed_at"] = utc_now_iso()
+        write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
+
+        write_json_file(
+            run_dir / EXPERIMENTS_FILENAME,
+            {
+                "schema_version": DREAM_SCHEMA_VERSION,
+                "kind": "local-kb-dream-experiments",
+                "run_id": resolved_run_id,
+                "generated_at": generated_at,
+                "experiment_count": len(experiment_results),
+                "experiments": experiment_results,
+            },
+        )
+
         result = {
             "schema_version": DREAM_SCHEMA_VERSION,
             "kind": DREAM_REPORT_KIND,
             "run_id": resolved_run_id,
             "generated_at": generated_at,
-            "status": "skipped",
-            "reason": "maintenance-lane-active",
+            "status": "completed",
             "lane_guard": lane_guard,
-            "history_event_ids": [skipped_event_id],
+            "history_path": relative_repo_path(repo_root, history_events_path(repo_root)),
+            "preflight": preflight,
+            "execution_plan": execution_plan,
+            "opportunity_count": len(opportunities),
+            "executable_opportunity_count": len(executable_opportunities),
+            "valuable_opportunity_count": len(selected),
+            "skipped_prior_sandbox_success_count": skipped_prior_success_count,
+            "selected_experiment_count": len(selected),
+            "created_candidate_count": len(created_candidates),
+            "created_candidates": created_candidates,
+            "history_event_ids": history_event_ids,
+            "run_observation_event_id": run_observation_event_id,
+            "experiments": experiment_results,
             "artifact_paths": {
                 "run_dir": relative_repo_path(repo_root, run_dir),
                 "plan_path": relative_repo_path(repo_root, run_dir / PLAN_FILENAME),
+                "preflight_path": relative_repo_path(repo_root, run_dir / PREFLIGHT_FILENAME),
+                "opportunities_path": relative_repo_path(repo_root, run_dir / OPPORTUNITIES_FILENAME),
+                "experiments_path": relative_repo_path(repo_root, run_dir / EXPERIMENTS_FILENAME),
+                "execution_plan_path": relative_repo_path(repo_root, run_dir / EXECUTION_PLAN_FILENAME),
+                "sandbox_dir": relative_repo_path(repo_root, dream_sandbox_dir(repo_root, resolved_run_id)),
                 "report_path": relative_repo_path(repo_root, run_dir / REPORT_FILENAME),
             },
         }
-        result["lane_lock"] = lane_lock
+        write_json_file(run_dir / REPORT_FILENAME, result)
+        write_lane_status(repo_root, "kb-dream", "completed", run_id=resolved_run_id)
         result["lock_release"] = release_lane_lock(repo_root, "kb-dream", run_id=resolved_run_id)
+        lock_released = True
         write_json_file(run_dir / REPORT_FILENAME, result)
         return result
-
-    preflight = _build_dream_preflight(repo_root, run_id=resolved_run_id, generated_at=generated_at)
-    write_json_file(run_dir / PREFLIGHT_FILENAME, preflight)
-    plan_payload["preflight_path"] = relative_repo_path(repo_root, run_dir / PREFLIGHT_FILENAME)
-    plan_payload["preflight_matched_entry_ids"] = list(preflight["matched_entry_ids"])
-    plan_payload["preflight_matched_entry_count"] = int(preflight["matched_entry_count"])
-    write_json_file(run_dir / PLAN_FILENAME, plan_payload)
-
-    entries = load_entries(repo_root)
-    history_events = load_history_events(repo_root, max_events=max_events)
-    indexed_events = {event["event_id"]: event for event in history_events}
-    consolidation = consolidate_history(
-        repo_root=repo_root,
-        run_id=f"{resolved_run_id}-source",
-        max_events=max_events,
-        apply_mode=APPLY_MODE_NONE,
-    )
-    opportunities = build_route_candidate_opportunities(consolidation["actions"], entries)
-    opportunities.extend(build_taxonomy_gap_opportunities(repo_root, entries))
-    opportunities.extend(build_entry_validation_opportunities(repo_root, entries))
-    opportunities = _prepare_opportunities(opportunities)
-    prior_successful_sandbox_keys = _load_prior_successful_sandbox_keys(
-        repo_root,
-        current_run_id=resolved_run_id,
-    )
-    opportunities = sorted(
-        opportunities,
-        key=lambda item: (
-            -int(bool(item.get("is_executable", False))),
-            -_selection_priority(item),
-            -int(item.get("executability_score", 0) or 0),
-            -int(item["opportunity_score"]),
-            item["kind"],
-            item["route_ref"],
-        ),
-    )
-    write_json_file(
-        run_dir / OPPORTUNITIES_FILENAME,
-        {
-            "schema_version": DREAM_SCHEMA_VERSION,
-            "kind": "local-kb-dream-opportunities",
-            "run_id": resolved_run_id,
-            "generated_at": generated_at,
-            "opportunity_count": len(opportunities),
-            "opportunities": opportunities,
-        },
-    )
-
-    executable_opportunities = [item for item in opportunities if item.get("is_executable", False)]
-    selected = _select_valuable_experiments(
-        opportunities,
-        prior_successful_sandbox_keys=prior_successful_sandbox_keys,
-    )
-    skipped_prior_success_count = sum(
-        1
-        for item in opportunities
-        if item.get("selection_status") == "skipped-prior-sandbox-success"
-    )
-    write_json_file(
-        run_dir / OPPORTUNITIES_FILENAME,
-        {
-            "schema_version": DREAM_SCHEMA_VERSION,
-            "kind": "local-kb-dream-opportunities",
-            "run_id": resolved_run_id,
-            "generated_at": generated_at,
-            "opportunity_count": len(opportunities),
-            "prior_sandbox_success_count": len(prior_successful_sandbox_keys),
-            "skipped_prior_sandbox_success_count": skipped_prior_success_count,
-            "opportunities": opportunities,
-        },
-    )
-    planned_experiments = [
-        {
-            "sequence_index": sequence_index,
-            "route_ref": item["route_ref"],
-            "kind": item["kind"],
-            "candidate_creation_mode": str(item.get("candidate_creation_mode", "") or ""),
-            "hypothesis": item["hypothesis"],
-            "allowed_action_surface": item["allowed_action_surface"],
-            "experiment_design": item["experiment_design"],
-            "validation_plan": item["validation_plan"],
-            "success_criteria": item["success_criteria"],
-            "failure_criteria": item["failure_criteria"],
-            "safety_tier": item["safety_tier"],
-            "rollback_plan": item["rollback_plan"],
-            "permitted_write_back": item["permitted_write_back"],
-            "sandbox_mode": _sandbox_mode_for_opportunity(item),
-            "allowed_writes": _sandbox_allowed_writes(repo_root, resolved_run_id),
-            "is_executable": item["is_executable"],
-            "executability_score": item["executability_score"],
-            "status": "planned",
-        }
-        for sequence_index, item in enumerate(selected, start=1)
-    ]
-    write_json_file(
-        run_dir / EXPERIMENTS_FILENAME,
-        {
-            "schema_version": DREAM_SCHEMA_VERSION,
-            "kind": "local-kb-dream-experiments",
-            "run_id": resolved_run_id,
-            "generated_at": generated_at,
-            "experiment_count": len(planned_experiments),
-            "experiments": planned_experiments,
-        },
-    )
-    execution_plan = _build_execution_plan(
-        repo_root,
-        run_id=resolved_run_id,
-        generated_at=generated_at,
-        opportunity_count=len(opportunities),
-        executable_opportunity_count=len(executable_opportunities),
-        selected=selected,
-        skipped_prior_sandbox_success_count=skipped_prior_success_count,
-    )
-    write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
-    plan_payload["execution_plan_path"] = relative_repo_path(repo_root, run_dir / EXECUTION_PLAN_FILENAME)
-    plan_payload["executable_opportunity_count"] = len(executable_opportunities)
-    plan_payload["valuable_opportunity_count"] = len(selected)
-    plan_payload["skipped_prior_sandbox_success_count"] = skipped_prior_success_count
-    write_json_file(run_dir / PLAN_FILENAME, plan_payload)
-
-    experiment_results: list[dict[str, Any]] = []
-    created_candidates: list[dict[str, Any]] = []
-    history_event_ids: list[str] = []
-
-    for sequence_index, opportunity in enumerate(selected, start=1):
-        search_context = _search_context(
-            repo_root,
-            route_ref=opportunity["route_ref"],
-            query=_validation_query(opportunity),
-        )
-        exact_coverage_exists = (
-            opportunity["exact_route_entry_count"] > 0
-            or search_context["exact_route_hit_count"] > 0
-        )
-        created_candidate: dict[str, Any] | None = None
-        classification = "history-only"
-        outcome = ""
-        comment = ""
-
-        if opportunity["kind"] == "route-candidate" and exact_coverage_exists:
-            classification = "already-covered"
-            outcome = f"Route {opportunity['route_title']} already has exact local coverage; no dream candidate was created."
-            comment = "Dream validation found an exact route match, so this remained a history-only note."
-        elif opportunity["kind"] == "route-candidate" and opportunity["candidate_creation_mode"] == "sleep-eligible":
-            classification = "sleep-owned"
-            outcome = (
-                f"Route {opportunity['route_title']} is already eligible for sleep new-candidate apply; "
-                "dream mode left candidate creation to sleep maintenance."
-            )
-            comment = "Dream mode did not duplicate a sleep-owned candidate action."
-        elif opportunity["kind"] == "route-candidate" and opportunity["candidate_creation_mode"] == "candidate-backlog":
-            classification = "candidate-backlog"
-            sibling_counts = opportunity.get("sibling_status_counts", {})
-            if not isinstance(sibling_counts, dict):
-                sibling_counts = {}
-            outcome = (
-                f"Route {opportunity['route_title']} lacks exact local coverage, but adjacent candidate backlog "
-                f"already exists in the same route family: {sibling_counts}."
-            )
-            comment = (
-                "Dream mode kept this history-only and left the route family for Sleep to merge, reject, "
-                "narrow, or consolidate instead of creating another candidate."
-            )
-        elif opportunity["kind"] == "route-candidate" and opportunity["candidate_creation_mode"] == "dream-adjacent":
-            if search_context["sibling_route_hit_count"] == 0:
-                classification = "inconclusive"
-                outcome = (
-                    f"Route {opportunity['route_title']} still lacks exact coverage, but the dream validation "
-                    "did not find enough adjacent search support for a scaffold."
-                )
-                comment = "Kept this run history-only because adjacent route support was weaker than expected."
-            else:
-                created_candidate, creation_reason = _create_dream_candidate(
-                    repo_root,
-                    action=opportunity["source_action"],
-                    run_id=resolved_run_id,
-                    generated_at=generated_at,
-                    creation_mode=opportunity["candidate_creation_mode"],
-                    indexed_events=indexed_events,
-                )
-                if created_candidate is not None:
-                    classification = "candidate-created"
-                    outcome = (
-                        f"Created a bounded candidate scaffold for {opportunity['route_title']} via "
-                        f"{opportunity['candidate_creation_mode']} validation."
-                    )
-                    comment = "Dream mode validated the route with local search and adjacent evidence before writing only to candidates."
-                    created_candidates.append(created_candidate)
-                else:
-                    classification = "already-exists"
-                    outcome = creation_reason
-                    comment = "Dream mode skipped duplicate candidate creation and left a history note instead."
-        elif opportunity["kind"] == "entry-validation":
-            source_entry_id = str(opportunity.get("source_entry_id", "") or "unknown")
-            if search_context["exact_route_hit_count"] > 0:
-                classification = "validated"
-                outcome = (
-                    f"Validated existing card {source_entry_id} for {opportunity['route_title']} "
-                    "with exact route-local retrieval evidence."
-                )
-                comment = "Dream mode treated this as read-only evidence for later sleep review."
-            elif search_context["sibling_route_hit_count"] > 0:
-                classification = "adjacent-support"
-                outcome = (
-                    f"Found adjacent support for existing card {source_entry_id}, but no exact route-local hit."
-                )
-                comment = "Kept this as history-only evidence because support was adjacent rather than exact."
-            else:
-                classification = "inconclusive"
-                outcome = (
-                    f"Validated existing card {source_entry_id}, but the local search did not find grounded support."
-                )
-                comment = "The experiment was executable, but its result should not strengthen the card."
-        else:
-            classification = "history-only"
-            outcome = (
-                f"Inspected {opportunity['route_title']} as a dream-mode opportunity and left the result in history only."
-            )
-            comment = "The route stayed provisional because dream mode did not have enough grounded evidence for a candidate scaffold."
-
-        action_taken = (
-            f"Ran a bounded dream validation for {opportunity['route_title']}: local search with path hint "
-            f"{opportunity['route_ref']} and query '{search_context['query']}'."
-        )
-        observed_result = outcome
-        if classification == "candidate-created":
-            operational_use = (
-                "Treat the dream-generated card as a candidate-only scaffold and wait for live-task confirmation "
-                "before any promotion."
-            )
-        elif opportunity["kind"] == "taxonomy-gap":
-            operational_use = "Use this result to drive later taxonomy review without changing trusted memory during dream mode."
-        else:
-            operational_use = "Keep this result in history and revisit the route during a later live task or sleep pass."
-        reuse_judgment = (
-            "Reusable when the same route keeps appearing without exact card coverage but nearby sibling routes suggest the gap is meaningful."
-        )
-
-        experiment = {
-            "sequence_index": sequence_index,
-            "kind": opportunity["kind"],
-            "route_ref": opportunity["route_ref"],
-            "route_title": opportunity["route_title"],
-            "candidate_creation_mode": str(opportunity.get("candidate_creation_mode", "") or ""),
-            "hypothesis": opportunity["hypothesis"],
-            "allowed_action_surface": opportunity["allowed_action_surface"],
-            "experiment_design": opportunity["experiment_design"],
-            "validation_plan": opportunity["validation_plan"],
-            "success_criteria": opportunity["success_criteria"],
-            "failure_criteria": opportunity["failure_criteria"],
-            "safety_tier": opportunity["safety_tier"],
-            "rollback_plan": opportunity["rollback_plan"],
-            "permitted_write_back": opportunity["permitted_write_back"],
-            "is_executable": opportunity["is_executable"],
-            "executability_score": opportunity["executability_score"],
-            "classification": classification,
-            "search_context": search_context,
-            "outcome": outcome,
-            "comment": comment,
-            "action_taken": action_taken,
-            "observed_result": observed_result,
-            "operational_use": operational_use,
-            "reuse_judgment": reuse_judgment,
-            "created_candidate": created_candidate,
-        }
-        sandbox_result = _run_dream_sandbox(
-            repo_root,
-            run_id=resolved_run_id,
-            generated_at=generated_at,
-            sequence_index=sequence_index,
-            opportunity=opportunity,
-            search_context=search_context,
-            classification=classification,
-            history_events=history_events,
-        )
-        experiment.update(sandbox_result)
-        if experiment.get("sandbox_mode") == SANDBOX_MODE_SCENARIO_REPLAY:
-            replay = experiment.get("scenario_replay", {})
-            decision = replay.get("decision_delta", {}) if isinstance(replay, dict) else {}
-            action_taken = (
-                f"Ran a scenario-replay Dream sandbox for {opportunity['route_title']}: compared local search "
-                "without the tested card against search with the tested card using a historical or card-derived task scenario."
-            )
-            observed_result = str(decision.get("reason", "") or observed_result)
-            operational_use = (
-                "Use the scenario-replay delta as Sleep review input for the tested candidate; do not treat it "
-                "as trusted-card promotion evidence without later live-task confirmation."
-            )
-            experiment["action_taken"] = action_taken
-            experiment["observed_result"] = observed_result
-            experiment["operational_use"] = operational_use
-        observation_event_id = _record_dream_observation(
-            repo_root,
-            run_id=resolved_run_id,
-            opportunity=opportunity,
-            experiment=experiment,
-            created_candidate=created_candidate,
-        )
-        experiment["history_event_id"] = observation_event_id
-        history_event_ids.append(observation_event_id)
-        experiment_results.append(experiment)
-
-    if selected and experiment_results:
-        classifications = ", ".join(sorted({item["classification"] for item in experiment_results}))
-        _set_checkpoint_status(
-            execution_plan,
-            "validation",
-            "completed",
-            f"Validation completed with classifications: {classifications}.",
-        )
-        _set_checkpoint_status(
-            execution_plan,
-            "experiment-observation",
-            "completed",
-            f"Wrote {len(experiment_results)} route-specific experiment observation(s).",
-        )
-
-    run_observation_event_id = _record_dream_run_observation(
-        repo_root,
-        run_id=resolved_run_id,
-        preflight=preflight,
-        opportunity_count=len(opportunities),
-        selected=selected,
-        experiment_results=experiment_results,
-        created_candidates=created_candidates,
-    )
-    history_event_ids.append(run_observation_event_id)
-    _set_checkpoint_status(
-        execution_plan,
-        "run-observation",
-        "completed",
-        f"Wrote run-level Dream-process observation {run_observation_event_id}.",
-    )
-    _set_checkpoint_status(execution_plan, "report", "completed", "Report payload prepared.")
-    execution_plan["status"] = "completed"
-    execution_plan["completed_at"] = utc_now_iso()
-    write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
-
-    write_json_file(
-        run_dir / EXPERIMENTS_FILENAME,
-        {
-            "schema_version": DREAM_SCHEMA_VERSION,
-            "kind": "local-kb-dream-experiments",
-            "run_id": resolved_run_id,
-            "generated_at": generated_at,
-            "experiment_count": len(experiment_results),
-            "experiments": experiment_results,
-        },
-    )
-
-    result = {
-        "schema_version": DREAM_SCHEMA_VERSION,
-        "kind": DREAM_REPORT_KIND,
-        "run_id": resolved_run_id,
-        "generated_at": generated_at,
-        "status": "completed",
-        "lane_guard": lane_guard,
-        "history_path": relative_repo_path(repo_root, history_events_path(repo_root)),
-        "preflight": preflight,
-        "execution_plan": execution_plan,
-        "opportunity_count": len(opportunities),
-        "executable_opportunity_count": len(executable_opportunities),
-        "valuable_opportunity_count": len(selected),
-        "skipped_prior_sandbox_success_count": skipped_prior_success_count,
-        "selected_experiment_count": len(selected),
-        "created_candidate_count": len(created_candidates),
-        "created_candidates": created_candidates,
-        "history_event_ids": history_event_ids,
-        "run_observation_event_id": run_observation_event_id,
-        "experiments": experiment_results,
-        "artifact_paths": {
-            "run_dir": relative_repo_path(repo_root, run_dir),
-            "plan_path": relative_repo_path(repo_root, run_dir / PLAN_FILENAME),
-            "preflight_path": relative_repo_path(repo_root, run_dir / PREFLIGHT_FILENAME),
-            "opportunities_path": relative_repo_path(repo_root, run_dir / OPPORTUNITIES_FILENAME),
-            "experiments_path": relative_repo_path(repo_root, run_dir / EXPERIMENTS_FILENAME),
-            "execution_plan_path": relative_repo_path(repo_root, run_dir / EXECUTION_PLAN_FILENAME),
-            "sandbox_dir": relative_repo_path(repo_root, dream_sandbox_dir(repo_root, resolved_run_id)),
-            "report_path": relative_repo_path(repo_root, run_dir / REPORT_FILENAME),
-        },
-    }
-    write_json_file(run_dir / REPORT_FILENAME, result)
-    write_lane_status(repo_root, "kb-dream", "completed", run_id=resolved_run_id)
-    result["lock_release"] = release_lane_lock(repo_root, "kb-dream", run_id=resolved_run_id)
-    write_json_file(run_dir / REPORT_FILENAME, result)
-    return result
+    except Exception as exc:
+        write_lane_status(repo_root, "kb-dream", "failed", run_id=resolved_run_id, note=f"{type(exc).__name__}: {exc}")
+        raise
+    finally:
+        if not lock_released:
+            release_lane_lock(repo_root, "kb-dream", run_id=resolved_run_id)

@@ -8,7 +8,7 @@ from local_kb.adoption import record_exchange_hash, recorded_exchange_hashes
 from local_kb.card_ids import installation_short_label
 from local_kb.feedback import build_observation, record_observation
 from local_kb.github_repo_config import create_github_pull_request_for_branch
-from local_kb.maintenance_lanes import acquire_lane_lock, release_lane_lock
+from local_kb.maintenance_lanes import acquire_lane_lock, release_lane_lock, write_lane_status
 from local_kb.org_checks import check_organization_repository
 from local_kb.org_contribution import current_git_branch, prepare_organization_import_branch, push_organization_branch
 from local_kb.org_maintenance import build_organization_maintenance_report
@@ -379,165 +379,177 @@ def run_organization_contribution(
             "postflight_recorded": False,
         }
 
-    lane_lock = acquire_lane_lock(repo_root, "kb-org-contribute", run_id=f"org-contribute-{utc_timestamp()}")
-    source, sources, settings, sync_result = _sync_first_organization_source(repo_root, settings, base_branch=base_branch)
-    if not sync_result.get("ok"):
-        result = {
-            "ok": False,
-            "skipped": False,
-            "settings_gate": {
-                "available": True,
-                "mode": str(settings.get("mode") or "personal"),
-                "organization_validated": True,
-            },
-            "organization_id": str(source.get("organization_id") or "").strip(),
-            "source": source,
-            "sync": sync_result,
-            "preflight": {},
-            "outbox": {},
-            "branch": {"attempted": False},
-            "postflight_recorded": False,
-            "postflight_path": "",
-        }
-        result["lane_lock"] = lane_lock
-        result["lock_release"] = release_lane_lock(repo_root, "kb-org-contribute", run_id=str(lane_lock.get("run_id") or ""))
-        return result
-    organization_id = str(source.get("organization_id") or "").strip()
-    preflight = _preflight(
-        repo_root,
-        query="organization contribution outbox upload imports incoming lane main exchange surface content hash skill dependency",
-    )
-    outbox = build_organization_outbox(
-        repo_root,
-        organization_id=organization_id,
-        dry_run=dry_run,
-        organization_sources=sources,
-    )
-    branch_result: dict[str, Any] = {"attempted": False}
-    pending_outbox_files = _outbox_proposal_files(repo_root, organization_id, sources)
-    if outbox.get("ok") and prepare_branch and not dry_run and pending_outbox_files:
-        branch_result = prepare_organization_import_branch(
-            Path(str(source.get("path") or "")),
-            organization_outbox_dir(repo_root, organization_id),
-            contributor_id=contributor_id or installation_short_label(repo_root),
-            branch_name=branch_name,
-            commit=commit,
-            push=push,
-            remote=remote,
-            base_branch=base_branch,
-            proposal_files=pending_outbox_files,
+    resolved_run_id = f"org-contribute-{utc_timestamp()}"
+    lane_lock = acquire_lane_lock(repo_root, "kb-org-contribute", run_id=resolved_run_id)
+    lock_released = False
+    try:
+        write_lane_status(repo_root, "kb-org-contribute", "running", run_id=resolved_run_id)
+        source, sources, settings, sync_result = _sync_first_organization_source(repo_root, settings, base_branch=base_branch)
+        if not sync_result.get("ok"):
+            result = {
+                "ok": False,
+                "skipped": False,
+                "settings_gate": {
+                    "available": True,
+                    "mode": str(settings.get("mode") or "personal"),
+                    "organization_validated": True,
+                },
+                "organization_id": str(source.get("organization_id") or "").strip(),
+                "source": source,
+                "sync": sync_result,
+                "preflight": {},
+                "outbox": {},
+                "branch": {"attempted": False},
+                "postflight_recorded": False,
+                "postflight_path": "",
+            }
+            result["lane_lock"] = lane_lock
+            result["lock_release"] = release_lane_lock(repo_root, "kb-org-contribute", run_id=str(lane_lock.get("run_id") or ""))
+            lock_released = True
+            return result
+        organization_id = str(source.get("organization_id") or "").strip()
+        preflight = _preflight(
+            repo_root,
+            query="organization contribution outbox upload imports incoming lane main exchange surface content hash skill dependency",
         )
-        branch_result["attempted"] = True
-        if branch_result.get("ok"):
-            branch_persisted = bool(branch_result.get("committed"))
-            if branch_persisted:
-                for proposal_file in pending_outbox_files:
-                    payload = load_yaml_file(proposal_file)
-                    proposal = payload.get("organization_proposal") if isinstance(payload.get("organization_proposal"), dict) else {}
-                    content_hash = str(proposal.get("content_hash") or "").strip()
-                    if not content_hash:
-                        continue
-                    record_exchange_hash(
-                        repo_root,
-                        content_hash,
-                        direction="exported",
-                        organization_id=organization_id,
-                        source_repo=str(source.get("repo_url") or ""),
-                        source_path=str(proposal.get("source_path") or ""),
-                        local_path=str(proposal_file),
-                        entry_id=str(payload.get("id") or proposal_file.stem),
-                    )
-                    if (branch_result.get("push") or {}).get("pushed"):
+        outbox = build_organization_outbox(
+            repo_root,
+            organization_id=organization_id,
+            dry_run=dry_run,
+            organization_sources=sources,
+        )
+        branch_result: dict[str, Any] = {"attempted": False}
+        pending_outbox_files = _outbox_proposal_files(repo_root, organization_id, sources)
+        if outbox.get("ok") and prepare_branch and not dry_run and pending_outbox_files:
+            branch_result = prepare_organization_import_branch(
+                Path(str(source.get("path") or "")),
+                organization_outbox_dir(repo_root, organization_id),
+                contributor_id=contributor_id or installation_short_label(repo_root),
+                branch_name=branch_name,
+                commit=commit,
+                push=push,
+                remote=remote,
+                base_branch=base_branch,
+                proposal_files=pending_outbox_files,
+            )
+            branch_result["attempted"] = True
+            if branch_result.get("ok"):
+                branch_persisted = bool(branch_result.get("committed"))
+                if branch_persisted:
+                    for proposal_file in pending_outbox_files:
+                        payload = load_yaml_file(proposal_file)
+                        proposal = payload.get("organization_proposal") if isinstance(payload.get("organization_proposal"), dict) else {}
+                        content_hash = str(proposal.get("content_hash") or "").strip()
+                        if not content_hash:
+                            continue
                         record_exchange_hash(
                             repo_root,
                             content_hash,
-                            direction="uploaded",
+                            direction="exported",
                             organization_id=organization_id,
                             source_repo=str(source.get("repo_url") or ""),
                             source_path=str(proposal.get("source_path") or ""),
                             local_path=str(proposal_file),
                             entry_id=str(payload.get("id") or proposal_file.stem),
                         )
-            created_files = [str(item) for item in branch_result.get("created_files") or []]
-            org_check = check_organization_repository(Path(str(source.get("path") or "")), changed_files=created_files)
-            branch_result["organization_check"] = {
-                "ok": bool(org_check.get("ok")),
-                "auto_merge_eligible": bool(org_check.get("auto_merge_eligible")),
-                "auto_merge_blockers": org_check.get("auto_merge_blockers") or [],
-            }
-            auto_merge_labels = ["org-kb:auto-merge"] if org_check.get("auto_merge_eligible") else []
-            if (branch_result.get("push") or {}).get("pushed"):
-                branch_result["pull_request"] = create_github_pull_request_for_branch(
-                    str(source.get("repo_url") or ""),
-                    branch=str(branch_result.get("branch") or ""),
-                    base_branch=base_branch,
-                    title="Add organization KB import proposals",
-                    body=(
-                        "This PR uploads local trusted experience to the organization import lane. "
-                        "Organization maintenance will decide what enters main."
-                    ),
-                    labels=auto_merge_labels,
-                )
-                if branch_result["pull_request"].get("url"):
-                    branch_result["pull_request_url"] = str(branch_result["pull_request"]["url"])
-                if branch_result["pull_request"].get("attempted") and not branch_result["pull_request"].get("ok"):
-                    branch_result["ok"] = False
-                    branch_result.setdefault("errors", []).extend(branch_result["pull_request"].get("errors") or [])
-            branch_result["restore_base"] = _checkout_organization_base_branch(
-                Path(str(source.get("path") or "")),
-                base_branch=base_branch,
-            )
-            if not branch_result["restore_base"].get("ok"):
-                branch_result["ok"] = False
-                branch_result.setdefault("errors", []).extend(branch_result["restore_base"].get("errors") or [])
-            elif branch_persisted:
-                branch_result["clear_outbox"] = _clear_organization_outbox(repo_root, organization_id)
-                if not branch_result["clear_outbox"].get("ok"):
-                    branch_result["ok"] = False
-                    branch_result.setdefault("errors", []).append(
-                        str(branch_result["clear_outbox"].get("reason") or "failed to clear organization outbox after upload")
+                        if (branch_result.get("push") or {}).get("pushed"):
+                            record_exchange_hash(
+                                repo_root,
+                                content_hash,
+                                direction="uploaded",
+                                organization_id=organization_id,
+                                source_repo=str(source.get("repo_url") or ""),
+                                source_path=str(proposal.get("source_path") or ""),
+                                local_path=str(proposal_file),
+                                entry_id=str(payload.get("id") or proposal_file.stem),
+                            )
+                created_files = [str(item) for item in branch_result.get("created_files") or []]
+                org_check = check_organization_repository(Path(str(source.get("path") or "")), changed_files=created_files)
+                branch_result["organization_check"] = {
+                    "ok": bool(org_check.get("ok")),
+                    "auto_merge_eligible": bool(org_check.get("auto_merge_eligible")),
+                    "auto_merge_blockers": org_check.get("auto_merge_blockers") or [],
+                }
+                auto_merge_labels = ["org-kb:auto-merge"] if org_check.get("auto_merge_eligible") else []
+                if (branch_result.get("push") or {}).get("pushed"):
+                    branch_result["pull_request"] = create_github_pull_request_for_branch(
+                        str(source.get("repo_url") or ""),
+                        branch=str(branch_result.get("branch") or ""),
+                        base_branch=base_branch,
+                        title="Add organization KB import proposals",
+                        body=(
+                            "This PR uploads local trusted experience to the organization import lane. "
+                            "Organization maintenance will decide what enters main."
+                        ),
+                        labels=auto_merge_labels,
                     )
+                    if branch_result["pull_request"].get("url"):
+                        branch_result["pull_request_url"] = str(branch_result["pull_request"]["url"])
+                    if branch_result["pull_request"].get("attempted") and not branch_result["pull_request"].get("ok"):
+                        branch_result["ok"] = False
+                        branch_result.setdefault("errors", []).extend(branch_result["pull_request"].get("errors") or [])
+                branch_result["restore_base"] = _checkout_organization_base_branch(
+                    Path(str(source.get("path") or "")),
+                    base_branch=base_branch,
+                )
+                if not branch_result["restore_base"].get("ok"):
+                    branch_result["ok"] = False
+                    branch_result.setdefault("errors", []).extend(branch_result["restore_base"].get("errors") or [])
+                elif branch_persisted:
+                    branch_result["clear_outbox"] = _clear_organization_outbox(repo_root, organization_id)
+                    if not branch_result["clear_outbox"].get("ok"):
+                        branch_result["ok"] = False
+                        branch_result.setdefault("errors", []).append(
+                            str(branch_result["clear_outbox"].get("reason") or "failed to clear organization outbox after upload")
+                        )
 
-    ok = bool(outbox.get("ok")) and bool(branch_result.get("ok", True))
-    postflight_path = ""
-    if record_postflight and not dry_run:
-        postflight_path = _record_postflight(
-            repo_root,
-            task_summary="Organization KB contribution automation",
-            preflight=preflight,
-            outcome=(
-                f"created={outbox.get('created_count', 0)} skipped={outbox.get('skipped_count', 0)} "
-                f"sync_attempted={bool(sync_result.get('attempted'))} branch_attempted={bool(branch_result.get('attempted'))} "
-                f"pushed={bool((branch_result.get('push') or {}).get('pushed'))}"
-            ),
-            comment="Organization contribution automation synchronized the organization mirror, inspected local shareable cards, and uploaded eligible proposals to the organization import lane when possible.",
-            action_taken="Read desktop organization settings, synchronized the organization source, ran content-hash-gated organization outbox export, prepared an import branch under kb/imports, and pushed it when enabled.",
-            observed_result=f"Outbox created {outbox.get('created_count', 0)} proposal(s).",
-            operational_use="Use this audit event to confirm scheduled contribution automation is syncing first, avoiding repeated exchanged hashes, writing only imports, and leaving main movement to organization maintenance.",
-            agent_name="kb-organization-contribute",
-        )
+        ok = bool(outbox.get("ok")) and bool(branch_result.get("ok", True))
+        postflight_path = ""
+        if record_postflight and not dry_run:
+            postflight_path = _record_postflight(
+                repo_root,
+                task_summary="Organization KB contribution automation",
+                preflight=preflight,
+                outcome=(
+                    f"created={outbox.get('created_count', 0)} skipped={outbox.get('skipped_count', 0)} "
+                    f"sync_attempted={bool(sync_result.get('attempted'))} branch_attempted={bool(branch_result.get('attempted'))} "
+                    f"pushed={bool((branch_result.get('push') or {}).get('pushed'))}"
+                ),
+                comment="Organization contribution automation synchronized the organization mirror, inspected local shareable cards, and uploaded eligible proposals to the organization import lane when possible.",
+                action_taken="Read desktop organization settings, synchronized the organization source, ran content-hash-gated organization outbox export, prepared an import branch under kb/imports, and pushed it when enabled.",
+                observed_result=f"Outbox created {outbox.get('created_count', 0)} proposal(s).",
+                operational_use="Use this audit event to confirm scheduled contribution automation is syncing first, avoiding repeated exchanged hashes, writing only imports, and leaving main movement to organization maintenance.",
+                agent_name="kb-organization-contribute",
+            )
 
-    result = {
-        "ok": ok,
-        "skipped": False,
-        "settings_gate": {
-            "available": True,
-            "mode": str(settings.get("mode") or "personal"),
-            "organization_validated": True,
-        },
-        "organization_id": organization_id,
-        "source": source,
-        "sync": sync_result,
-        "lane_policy": ORG_LANE_POLICY,
-        "preflight": preflight,
-        "outbox": outbox,
-        "branch": branch_result,
-        "postflight_recorded": bool(postflight_path),
-        "postflight_path": postflight_path,
-    }
-    result["lane_lock"] = lane_lock
-    result["lock_release"] = release_lane_lock(repo_root, "kb-org-contribute", run_id=str(lane_lock.get("run_id") or ""))
-    return result
+        result = {
+            "ok": ok,
+            "skipped": False,
+            "settings_gate": {
+                "available": True,
+                "mode": str(settings.get("mode") or "personal"),
+                "organization_validated": True,
+            },
+            "organization_id": organization_id,
+            "source": source,
+            "sync": sync_result,
+            "lane_policy": ORG_LANE_POLICY,
+            "preflight": preflight,
+            "outbox": outbox,
+            "branch": branch_result,
+            "postflight_recorded": bool(postflight_path),
+            "postflight_path": postflight_path,
+        }
+        result["lane_lock"] = lane_lock
+        result["lock_release"] = release_lane_lock(repo_root, "kb-org-contribute", run_id=str(lane_lock.get("run_id") or ""))
+        lock_released = True
+        return result
+    except Exception as exc:
+        write_lane_status(repo_root, "kb-org-contribute", "failed", run_id=resolved_run_id, note=f"{type(exc).__name__}: {exc}")
+        raise
+    finally:
+        if not lock_released:
+            release_lane_lock(repo_root, "kb-org-contribute", run_id=resolved_run_id)
 
 
 def run_organization_maintenance(
@@ -572,11 +584,91 @@ def run_organization_maintenance(
             "postflight_recorded": False,
         }
 
-    lane_lock = acquire_lane_lock(repo_root, "kb-org-maintenance", run_id=f"org-maintenance-{utc_timestamp()}")
-    source, sources, settings, sync_result = _sync_first_organization_source(repo_root, settings, base_branch=base_branch)
-    if not sync_result.get("ok"):
+    resolved_run_id = f"org-maintenance-{utc_timestamp()}"
+    lane_lock = acquire_lane_lock(repo_root, "kb-org-maintenance", run_id=resolved_run_id)
+    lock_released = False
+    try:
+        write_lane_status(repo_root, "kb-org-maintenance", "running", run_id=resolved_run_id)
+        source, sources, settings, sync_result = _sync_first_organization_source(repo_root, settings, base_branch=base_branch)
+        if not sync_result.get("ok"):
+            result = {
+                "ok": False,
+                "skipped": False,
+                "settings_gate": {
+                    "available": True,
+                    "mode": str(settings.get("mode") or "personal"),
+                    "organization_validated": True,
+                    "maintenance_requested": bool(participation.get("requested")),
+                },
+                "organization_id": str(source.get("organization_id") or "").strip(),
+                "source": source,
+                "participation": participation,
+                "sync": sync_result,
+                "preflight": {},
+                "report": {},
+                "maintenance_branch": {"attempted": False},
+                "postflight_recorded": False,
+            }
+            result["lane_lock"] = lane_lock
+            result["lock_release"] = release_lane_lock(repo_root, "kb-org-maintenance", run_id=str(lane_lock.get("run_id") or ""))
+            lock_released = True
+            return result
+        organization_id = str(source.get("organization_id") or "").strip()
+        preflight = _preflight(
+            repo_root,
+            query="organization maintenance review imports main exchange surface legacy compatibility skills merge split auto merge",
+        )
+        report = build_organization_maintenance_report(
+            Path(str(source.get("path") or "")),
+            repo_root=repo_root,
+            organization_id=organization_id,
+            apply_reviewed_cleanup=True,
+        )
+        maintenance_branch: dict[str, Any] = {"attempted": False}
+        cleanup = report.get("cleanup") if isinstance(report.get("cleanup"), dict) else {}
+        apply_result = cleanup.get("apply") if isinstance(cleanup.get("apply"), dict) else {}
+        post_apply_check = cleanup.get("post_apply_check") if isinstance(cleanup.get("post_apply_check"), dict) else {}
+        applied_count = int(apply_result.get("applied_count") or 0)
+        if applied_count > 0:
+            maintenance_branch = _commit_and_push_organization_maintenance(
+                repo_root,
+                Path(str(source.get("path") or "")),
+                changed_files=_maintenance_stage_paths(apply_result),
+                push=push,
+                remote=remote,
+                base_branch=base_branch,
+                repo_url=str(source.get("repo_url") or ""),
+            )
+        postflight_path = ""
+        if record_postflight:
+            postflight_path = _record_postflight(
+                repo_root,
+                task_summary="Organization KB maintenance automation",
+                preflight=preflight,
+                outcome=(
+                    f"main_active_count={report.get('main_active_count', 0)} "
+                    f"imports_count={report.get('imports_count', 0)} "
+                    f"legacy_compatibility={bool(report.get('legacy_compatibility'))} "
+                    f"skill_count={report.get('skill_count', 0)} "
+                    f"recommendations={len(report.get('recommendations', []))} "
+                    f"sleep_selected={((report.get('cleanup') or {}).get('review') or {}).get('selected_count', 0)} "
+                    f"applied={applied_count} pushed={bool((maintenance_branch.get('push') or {}).get('pushed'))}"
+                ),
+                comment="Organization maintenance automation inspected the validated organization mirror, including the imports incoming lane and main exchange surface, then selected cleanup proposals and applied organization Sleep-style actions with audit evidence.",
+                action_taken="Read desktop organization maintenance settings, validated participation, inspected the organization KB mirror with the organization maintenance worldview, selected cleanup proposals, and moved reviewed material toward main when selected actions allowed it.",
+                observed_result=f"Report recommendations: {', '.join(report.get('recommendations', [])) or 'none'}.",
+                operational_use="Use this audit event to confirm scheduled organization maintenance runs only on opted-in machines, treats legacy trusted/candidates as compatibility paths, and closes the imports-to-main decision/apply loop for supported cleanup actions.",
+                agent_name="kb-organization-maintenance",
+            )
+
+        apply_ok = True
+        if apply_result.get("attempted") or apply_result.get("ok") is False:
+            apply_ok = bool(apply_result.get("ok"))
+        post_apply_ok = True
+        if post_apply_check:
+            post_apply_ok = bool(post_apply_check.get("ok"))
         result = {
-            "ok": False,
+            "ok": bool(report.get("ok")) and apply_ok and post_apply_ok and bool(maintenance_branch.get("ok", True)),
             "skipped": False,
             "settings_gate": {
                 "available": True,
@@ -584,92 +676,24 @@ def run_organization_maintenance(
                 "organization_validated": True,
                 "maintenance_requested": bool(participation.get("requested")),
             },
-            "organization_id": str(source.get("organization_id") or "").strip(),
+            "organization_id": organization_id,
             "source": source,
             "participation": participation,
             "sync": sync_result,
-            "preflight": {},
-            "report": {},
-            "maintenance_branch": {"attempted": False},
-            "postflight_recorded": False,
+            "lane_policy": ORG_LANE_POLICY,
+            "preflight": preflight,
+            "report": report,
+            "maintenance_branch": maintenance_branch,
+            "postflight_recorded": bool(postflight_path),
+            "postflight_path": postflight_path,
         }
         result["lane_lock"] = lane_lock
         result["lock_release"] = release_lane_lock(repo_root, "kb-org-maintenance", run_id=str(lane_lock.get("run_id") or ""))
+        lock_released = True
         return result
-    organization_id = str(source.get("organization_id") or "").strip()
-    preflight = _preflight(
-        repo_root,
-        query="organization maintenance review imports main exchange surface legacy compatibility skills merge split auto merge",
-    )
-    report = build_organization_maintenance_report(
-        Path(str(source.get("path") or "")),
-        repo_root=repo_root,
-        organization_id=organization_id,
-        apply_reviewed_cleanup=True,
-    )
-    maintenance_branch: dict[str, Any] = {"attempted": False}
-    cleanup = report.get("cleanup") if isinstance(report.get("cleanup"), dict) else {}
-    apply_result = cleanup.get("apply") if isinstance(cleanup.get("apply"), dict) else {}
-    post_apply_check = cleanup.get("post_apply_check") if isinstance(cleanup.get("post_apply_check"), dict) else {}
-    applied_count = int(apply_result.get("applied_count") or 0)
-    if applied_count > 0:
-        maintenance_branch = _commit_and_push_organization_maintenance(
-            repo_root,
-            Path(str(source.get("path") or "")),
-            changed_files=_maintenance_stage_paths(apply_result),
-            push=push,
-            remote=remote,
-            base_branch=base_branch,
-            repo_url=str(source.get("repo_url") or ""),
-        )
-    postflight_path = ""
-    if record_postflight:
-        postflight_path = _record_postflight(
-            repo_root,
-            task_summary="Organization KB maintenance automation",
-            preflight=preflight,
-            outcome=(
-                f"main_active_count={report.get('main_active_count', 0)} "
-                f"imports_count={report.get('imports_count', 0)} "
-                f"legacy_compatibility={bool(report.get('legacy_compatibility'))} "
-                f"skill_count={report.get('skill_count', 0)} "
-                f"recommendations={len(report.get('recommendations', []))} "
-                f"sleep_selected={((report.get('cleanup') or {}).get('review') or {}).get('selected_count', 0)} "
-                f"applied={applied_count} pushed={bool((maintenance_branch.get('push') or {}).get('pushed'))}"
-            ),
-            comment="Organization maintenance automation inspected the validated organization mirror, including the imports incoming lane and main exchange surface, then selected cleanup proposals and applied organization Sleep-style actions with audit evidence.",
-            action_taken="Read desktop organization maintenance settings, validated participation, inspected the organization KB mirror with the organization maintenance worldview, selected cleanup proposals, and moved reviewed material toward main when selected actions allowed it.",
-            observed_result=f"Report recommendations: {', '.join(report.get('recommendations', [])) or 'none'}.",
-            operational_use="Use this audit event to confirm scheduled organization maintenance runs only on opted-in machines, treats legacy trusted/candidates as compatibility paths, and closes the imports-to-main decision/apply loop for supported cleanup actions.",
-            agent_name="kb-organization-maintenance",
-        )
-
-    apply_ok = True
-    if apply_result.get("attempted") or apply_result.get("ok") is False:
-        apply_ok = bool(apply_result.get("ok"))
-    post_apply_ok = True
-    if post_apply_check:
-        post_apply_ok = bool(post_apply_check.get("ok"))
-    result = {
-        "ok": bool(report.get("ok")) and apply_ok and post_apply_ok and bool(maintenance_branch.get("ok", True)),
-        "skipped": False,
-        "settings_gate": {
-            "available": True,
-            "mode": str(settings.get("mode") or "personal"),
-            "organization_validated": True,
-            "maintenance_requested": bool(participation.get("requested")),
-        },
-        "organization_id": organization_id,
-        "source": source,
-        "participation": participation,
-        "sync": sync_result,
-        "lane_policy": ORG_LANE_POLICY,
-        "preflight": preflight,
-        "report": report,
-        "maintenance_branch": maintenance_branch,
-        "postflight_recorded": bool(postflight_path),
-        "postflight_path": postflight_path,
-    }
-    result["lane_lock"] = lane_lock
-    result["lock_release"] = release_lane_lock(repo_root, "kb-org-maintenance", run_id=str(lane_lock.get("run_id") or ""))
-    return result
+    except Exception as exc:
+        write_lane_status(repo_root, "kb-org-maintenance", "failed", run_id=resolved_run_id, note=f"{type(exc).__name__}: {exc}")
+        raise
+    finally:
+        if not lock_released:
+            release_lane_lock(repo_root, "kb-org-maintenance", run_id=resolved_run_id)

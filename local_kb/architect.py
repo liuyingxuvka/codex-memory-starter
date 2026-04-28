@@ -1724,208 +1724,218 @@ def run_architect_maintenance(
     run_dir = architect_run_dir(repo_root, resolved_run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
     lane_lock = acquire_lane_lock(repo_root, "kb-architect", run_id=resolved_run_id)
-    write_lane_status(repo_root, "kb-architect", "running", run_id=resolved_run_id)
+    lock_released = False
+    try:
+        write_lane_status(repo_root, "kb-architect", "running", run_id=resolved_run_id)
 
-    execution_plan = build_initial_execution_plan(repo_root, run_id=resolved_run_id, generated_at=generated_at)
-    write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
+        execution_plan = build_initial_execution_plan(repo_root, run_id=resolved_run_id, generated_at=generated_at)
+        write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
 
-    guards = build_architect_guards(repo_root)
-    plan_payload = {
-        "schema_version": ARCHITECT_SCHEMA_VERSION,
-        "kind": "local-kb-architect-plan",
-        "run_id": resolved_run_id,
-        "generated_at": generated_at,
-        "guards": guards,
-        "required_order": [checkpoint["id"] for checkpoint in execution_plan["checkpoints"]],
-    }
-    write_json_file(run_dir / PLAN_FILENAME, plan_payload)
-    _set_checkpoint_status(
-        execution_plan,
-        "guards",
-        "blocked" if guards["blocked"] else "completed",
-        "Sleep/Dream guard checked.",
-    )
-    write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
+        guards = build_architect_guards(repo_root)
+        plan_payload = {
+            "schema_version": ARCHITECT_SCHEMA_VERSION,
+            "kind": "local-kb-architect-plan",
+            "run_id": resolved_run_id,
+            "generated_at": generated_at,
+            "guards": guards,
+            "required_order": [checkpoint["id"] for checkpoint in execution_plan["checkpoints"]],
+        }
+        write_json_file(run_dir / PLAN_FILENAME, plan_payload)
+        _set_checkpoint_status(
+            execution_plan,
+            "guards",
+            "blocked" if guards["blocked"] else "completed",
+            "Sleep/Dream guard checked.",
+        )
+        write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
 
-    if guards["blocked"]:
-        event_id = _write_skip_event(repo_root, run_id=resolved_run_id, guards=guards)
-        write_lane_status(repo_root, "kb-architect", "skipped", run_id=resolved_run_id)
+        if guards["blocked"]:
+            event_id = _write_skip_event(repo_root, run_id=resolved_run_id, guards=guards)
+            write_lane_status(repo_root, "kb-architect", "skipped", run_id=resolved_run_id)
+            _set_checkpoint_status(
+                execution_plan,
+                "postflight-observation",
+                "completed",
+                f"Wrote skip observation {event_id}.",
+            )
+            _set_checkpoint_status(execution_plan, "report", "completed", "Skip report prepared.")
+            execution_plan["status"] = "skipped"
+            execution_plan["completed_at"] = utc_now_iso()
+            write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
+            result = {
+                "schema_version": ARCHITECT_SCHEMA_VERSION,
+                "kind": ARCHITECT_REPORT_KIND,
+                "run_id": resolved_run_id,
+                "generated_at": generated_at,
+                "status": "skipped",
+                "reason": "maintenance-lane-active",
+                "guards": guards,
+                "history_event_ids": [event_id],
+                "artifact_paths": {
+                    "run_dir": relative_repo_path(repo_root, run_dir),
+                    "plan_path": relative_repo_path(repo_root, run_dir / PLAN_FILENAME),
+                    "execution_plan_path": relative_repo_path(repo_root, run_dir / EXECUTION_PLAN_FILENAME),
+                    "report_path": relative_repo_path(repo_root, run_dir / REPORT_FILENAME),
+                },
+            }
+            result["lane_lock"] = lane_lock
+            result["lock_release"] = release_lane_lock(repo_root, "kb-architect", run_id=resolved_run_id)
+            lock_released = True
+            write_json_file(run_dir / REPORT_FILENAME, result)
+            return result
+
+        preflight = _build_preflight(repo_root, run_id=resolved_run_id, generated_at=generated_at)
+        write_json_file(run_dir / PREFLIGHT_FILENAME, preflight)
+        _set_checkpoint_status(
+            execution_plan,
+            "kb-preflight",
+            "completed",
+            f"Retrieved {preflight['matched_entry_count']} prior maintenance entries.",
+        )
+
+        history_events = load_history_events(repo_root, max_events=max_events)
+        consolidation = consolidate_history(
+            repo_root=repo_root,
+            run_id=f"{resolved_run_id}-source",
+            emit_files=True,
+            max_events=max_events,
+            apply_mode=APPLY_MODE_NONE,
+        )
+        actions = list(consolidation.get("actions", []))
+        _set_checkpoint_status(
+            execution_plan,
+            "input-gathering",
+            "completed",
+            f"Read {len(history_events)} history events and {len(actions)} consolidation actions.",
+        )
+
+        queue, signals, decisions = build_architect_queue(
+            repo_root,
+            run_id=resolved_run_id,
+            generated_at=generated_at,
+            actions=actions,
+        )
+        selected_sandbox_trial = dict(queue.get("selected_sandbox_trial", {}))
+        write_json_file(run_dir / SIGNALS_FILENAME, signals)
+        write_json_file(run_dir / PROPOSALS_FILENAME, queue)
+        write_json_file(run_dir / DECISIONS_FILENAME, decisions)
+        write_json_file(
+            run_dir / TRIAL_SELECTION_FILENAME,
+            selected_sandbox_trial
+            if selected_sandbox_trial
+            else {
+                "schema_version": ARCHITECT_SCHEMA_VERSION,
+                "kind": "local-kb-architect-sandbox-trial-selection",
+                "run_id": resolved_run_id,
+                "selected": False,
+                "reason": "No sandbox-ready ready-for-apply packet is available in this run.",
+            },
+        )
+        write_json_file(architect_queue_path(repo_root), queue)
+        _set_checkpoint_status(
+            execution_plan,
+            "proposal-clustering",
+            "completed",
+            f"Merged {signals['mechanism_signal_count']} mechanism signal(s).",
+        )
+        _set_checkpoint_status(
+            execution_plan,
+            "three-axis-review",
+            "completed",
+            "Reviewed proposals with Evidence, Impact, and Safety only.",
+        )
+        _set_checkpoint_status(
+            execution_plan,
+            "status-decisions",
+            "completed",
+            f"Assigned statuses: {_status_counts(queue.get('proposals', []))}.",
+        )
+        _set_checkpoint_status(
+            execution_plan,
+            "queue-write",
+            "completed",
+            f"Wrote {relative_repo_path(repo_root, architect_queue_path(repo_root))}.",
+        )
+        _set_checkpoint_status(
+            execution_plan,
+            "sandbox-trial-selection",
+            "completed" if selected_sandbox_trial else "skipped",
+            (
+                f"Selected {selected_sandbox_trial.get('packet_id')} for one sandbox trial."
+                if selected_sandbox_trial
+                else "No sandbox-ready ready-for-apply packet was available."
+            ),
+        )
+
+        observation_event_id = _record_architect_observation(
+            repo_root,
+            run_id=resolved_run_id,
+            preflight=preflight,
+            queue=queue,
+        )
         _set_checkpoint_status(
             execution_plan,
             "postflight-observation",
             "completed",
-            f"Wrote skip observation {event_id}.",
+            f"Wrote Architect observation {observation_event_id}.",
         )
-        _set_checkpoint_status(execution_plan, "report", "completed", "Skip report prepared.")
-        execution_plan["status"] = "skipped"
+        _set_checkpoint_status(execution_plan, "report", "completed", "Report payload prepared.")
+        execution_plan["status"] = "completed"
         execution_plan["completed_at"] = utc_now_iso()
         write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
+
+        execution_summary = queue.get("execution_summary", {})
+        sandbox_ready_packets = list(queue.get("sandbox_ready_packets", []))
         result = {
             "schema_version": ARCHITECT_SCHEMA_VERSION,
             "kind": ARCHITECT_REPORT_KIND,
             "run_id": resolved_run_id,
             "generated_at": generated_at,
-            "status": "skipped",
-            "reason": "maintenance-lane-active",
+            "status": "completed",
             "guards": guards,
-            "history_event_ids": [event_id],
+            "history_path": relative_repo_path(repo_root, history_events_path(repo_root)),
+            "preflight": preflight,
+            "execution_plan": execution_plan,
+            "history_event_ids": [observation_event_id],
+            "consolidation_run_id": consolidation.get("run_id", f"{resolved_run_id}-source"),
+            "consolidation_action_count": len(actions),
+            "mechanism_signal_count": signals["mechanism_signal_count"],
+            "proposal_count": queue["proposal_count"],
+            "status_counts": _status_counts(queue.get("proposals", [])),
+            "ready_for_apply_count": _status_counts(queue.get("proposals", [])).get("ready-for-apply", 0),
+            "ready_for_patch_count": _status_counts(queue.get("proposals", [])).get("ready-for-patch", 0),
+            "execution_summary": execution_summary,
+            "agent_ready_count": int(execution_summary.get("agent_ready_count", 0) or 0),
+            "patch_plan_count": int(execution_summary.get("patch_plan_count", 0) or 0),
+            "sandbox_ready_count": int(execution_summary.get("sandbox_ready_count", 0) or 0),
+            "sandbox_ready_packets": sandbox_ready_packets,
+            "selected_sandbox_trial": selected_sandbox_trial,
+            "blocked_execution_count": int(execution_summary.get("blocked_count", 0) or 0),
+            "applied_execution_count": int(execution_summary.get("applied_count", 0) or 0),
+            "skipped_non_mechanism_action_count": signals["skipped_non_mechanism_action_count"],
             "artifact_paths": {
                 "run_dir": relative_repo_path(repo_root, run_dir),
                 "plan_path": relative_repo_path(repo_root, run_dir / PLAN_FILENAME),
+                "preflight_path": relative_repo_path(repo_root, run_dir / PREFLIGHT_FILENAME),
+                "signals_path": relative_repo_path(repo_root, run_dir / SIGNALS_FILENAME),
+                "proposals_path": relative_repo_path(repo_root, run_dir / PROPOSALS_FILENAME),
+                "decisions_path": relative_repo_path(repo_root, run_dir / DECISIONS_FILENAME),
+                "trial_selection_path": relative_repo_path(repo_root, run_dir / TRIAL_SELECTION_FILENAME),
                 "execution_plan_path": relative_repo_path(repo_root, run_dir / EXECUTION_PLAN_FILENAME),
+                "queue_path": relative_repo_path(repo_root, architect_queue_path(repo_root)),
                 "report_path": relative_repo_path(repo_root, run_dir / REPORT_FILENAME),
+                "source_consolidation_proposal_path": consolidation.get("artifact_paths", {}).get("proposal_path", ""),
             },
         }
-        result["lane_lock"] = lane_lock
+        write_json_file(run_dir / REPORT_FILENAME, result)
+        write_lane_status(repo_root, "kb-architect", "completed", run_id=resolved_run_id)
         result["lock_release"] = release_lane_lock(repo_root, "kb-architect", run_id=resolved_run_id)
+        lock_released = True
         write_json_file(run_dir / REPORT_FILENAME, result)
         return result
-
-    preflight = _build_preflight(repo_root, run_id=resolved_run_id, generated_at=generated_at)
-    write_json_file(run_dir / PREFLIGHT_FILENAME, preflight)
-    _set_checkpoint_status(
-        execution_plan,
-        "kb-preflight",
-        "completed",
-        f"Retrieved {preflight['matched_entry_count']} prior maintenance entries.",
-    )
-
-    history_events = load_history_events(repo_root, max_events=max_events)
-    consolidation = consolidate_history(
-        repo_root=repo_root,
-        run_id=f"{resolved_run_id}-source",
-        emit_files=True,
-        max_events=max_events,
-        apply_mode=APPLY_MODE_NONE,
-    )
-    actions = list(consolidation.get("actions", []))
-    _set_checkpoint_status(
-        execution_plan,
-        "input-gathering",
-        "completed",
-        f"Read {len(history_events)} history events and {len(actions)} consolidation actions.",
-    )
-
-    queue, signals, decisions = build_architect_queue(
-        repo_root,
-        run_id=resolved_run_id,
-        generated_at=generated_at,
-        actions=actions,
-    )
-    selected_sandbox_trial = dict(queue.get("selected_sandbox_trial", {}))
-    write_json_file(run_dir / SIGNALS_FILENAME, signals)
-    write_json_file(run_dir / PROPOSALS_FILENAME, queue)
-    write_json_file(run_dir / DECISIONS_FILENAME, decisions)
-    write_json_file(
-        run_dir / TRIAL_SELECTION_FILENAME,
-        selected_sandbox_trial
-        if selected_sandbox_trial
-        else {
-            "schema_version": ARCHITECT_SCHEMA_VERSION,
-            "kind": "local-kb-architect-sandbox-trial-selection",
-            "run_id": resolved_run_id,
-            "selected": False,
-            "reason": "No sandbox-ready ready-for-apply packet is available in this run.",
-        },
-    )
-    write_json_file(architect_queue_path(repo_root), queue)
-    _set_checkpoint_status(
-        execution_plan,
-        "proposal-clustering",
-        "completed",
-        f"Merged {signals['mechanism_signal_count']} mechanism signal(s).",
-    )
-    _set_checkpoint_status(
-        execution_plan,
-        "three-axis-review",
-        "completed",
-        "Reviewed proposals with Evidence, Impact, and Safety only.",
-    )
-    _set_checkpoint_status(
-        execution_plan,
-        "status-decisions",
-        "completed",
-        f"Assigned statuses: {_status_counts(queue.get('proposals', []))}.",
-    )
-    _set_checkpoint_status(
-        execution_plan,
-        "queue-write",
-        "completed",
-        f"Wrote {relative_repo_path(repo_root, architect_queue_path(repo_root))}.",
-    )
-    _set_checkpoint_status(
-        execution_plan,
-        "sandbox-trial-selection",
-        "completed" if selected_sandbox_trial else "skipped",
-        (
-            f"Selected {selected_sandbox_trial.get('packet_id')} for one sandbox trial."
-            if selected_sandbox_trial
-            else "No sandbox-ready ready-for-apply packet was available."
-        ),
-    )
-
-    observation_event_id = _record_architect_observation(
-        repo_root,
-        run_id=resolved_run_id,
-        preflight=preflight,
-        queue=queue,
-    )
-    _set_checkpoint_status(
-        execution_plan,
-        "postflight-observation",
-        "completed",
-        f"Wrote Architect observation {observation_event_id}.",
-    )
-    _set_checkpoint_status(execution_plan, "report", "completed", "Report payload prepared.")
-    execution_plan["status"] = "completed"
-    execution_plan["completed_at"] = utc_now_iso()
-    write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
-
-    execution_summary = queue.get("execution_summary", {})
-    sandbox_ready_packets = list(queue.get("sandbox_ready_packets", []))
-    result = {
-        "schema_version": ARCHITECT_SCHEMA_VERSION,
-        "kind": ARCHITECT_REPORT_KIND,
-        "run_id": resolved_run_id,
-        "generated_at": generated_at,
-        "status": "completed",
-        "guards": guards,
-        "history_path": relative_repo_path(repo_root, history_events_path(repo_root)),
-        "preflight": preflight,
-        "execution_plan": execution_plan,
-        "history_event_ids": [observation_event_id],
-        "consolidation_run_id": consolidation.get("run_id", f"{resolved_run_id}-source"),
-        "consolidation_action_count": len(actions),
-        "mechanism_signal_count": signals["mechanism_signal_count"],
-        "proposal_count": queue["proposal_count"],
-        "status_counts": _status_counts(queue.get("proposals", [])),
-        "ready_for_apply_count": _status_counts(queue.get("proposals", [])).get("ready-for-apply", 0),
-        "ready_for_patch_count": _status_counts(queue.get("proposals", [])).get("ready-for-patch", 0),
-        "execution_summary": execution_summary,
-        "agent_ready_count": int(execution_summary.get("agent_ready_count", 0) or 0),
-        "patch_plan_count": int(execution_summary.get("patch_plan_count", 0) or 0),
-        "sandbox_ready_count": int(execution_summary.get("sandbox_ready_count", 0) or 0),
-        "sandbox_ready_packets": sandbox_ready_packets,
-        "selected_sandbox_trial": selected_sandbox_trial,
-        "blocked_execution_count": int(execution_summary.get("blocked_count", 0) or 0),
-        "applied_execution_count": int(execution_summary.get("applied_count", 0) or 0),
-        "skipped_non_mechanism_action_count": signals["skipped_non_mechanism_action_count"],
-        "artifact_paths": {
-            "run_dir": relative_repo_path(repo_root, run_dir),
-            "plan_path": relative_repo_path(repo_root, run_dir / PLAN_FILENAME),
-            "preflight_path": relative_repo_path(repo_root, run_dir / PREFLIGHT_FILENAME),
-            "signals_path": relative_repo_path(repo_root, run_dir / SIGNALS_FILENAME),
-            "proposals_path": relative_repo_path(repo_root, run_dir / PROPOSALS_FILENAME),
-            "decisions_path": relative_repo_path(repo_root, run_dir / DECISIONS_FILENAME),
-            "trial_selection_path": relative_repo_path(repo_root, run_dir / TRIAL_SELECTION_FILENAME),
-            "execution_plan_path": relative_repo_path(repo_root, run_dir / EXECUTION_PLAN_FILENAME),
-            "queue_path": relative_repo_path(repo_root, architect_queue_path(repo_root)),
-            "report_path": relative_repo_path(repo_root, run_dir / REPORT_FILENAME),
-            "source_consolidation_proposal_path": consolidation.get("artifact_paths", {}).get("proposal_path", ""),
-        },
-    }
-    write_json_file(run_dir / REPORT_FILENAME, result)
-    write_lane_status(repo_root, "kb-architect", "completed", run_id=resolved_run_id)
-    result["lock_release"] = release_lane_lock(repo_root, "kb-architect", run_id=resolved_run_id)
-    write_json_file(run_dir / REPORT_FILENAME, result)
-    return result
+    except Exception as exc:
+        write_lane_status(repo_root, "kb-architect", "failed", run_id=resolved_run_id, note=f"{type(exc).__name__}: {exc}")
+        raise
+    finally:
+        if not lock_released:
+            release_lane_lock(repo_root, "kb-architect", run_id=resolved_run_id)

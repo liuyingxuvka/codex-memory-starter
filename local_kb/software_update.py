@@ -191,10 +191,26 @@ def check_remote_update(repo_root: Path, *, fetch: bool = True) -> dict[str, Any
     latest_revision = _git_stdout(repo_root, ["rev-parse", upstream])
     latest_version = _git_stdout(repo_root, ["show", f"{upstream}:VERSION"]) or state.get("latest_version") or current_version(repo_root)
     update_available = bool(local_revision and latest_revision and local_revision != latest_revision)
+    same_failed_target = (
+        state["status"] == UPDATE_STATUS_FAILED
+        and update_available
+        and latest_revision
+        and latest_revision == str(state.get("latest_revision") or "").strip()
+    )
     if update_available:
-        status = UPDATE_STATUS_PREPARED if state.get("user_requested") else UPDATE_STATUS_AVAILABLE
+        status = UPDATE_STATUS_FAILED if same_failed_target else (
+            UPDATE_STATUS_AVAILABLE if state["status"] == UPDATE_STATUS_FAILED else (
+                UPDATE_STATUS_PREPARED if state.get("user_requested") else UPDATE_STATUS_AVAILABLE
+            )
+        )
     else:
         status = UPDATE_STATUS_CURRENT
+    user_requested = bool(update_available and state.get("user_requested"))
+    if state["status"] == UPDATE_STATUS_FAILED:
+        user_requested = False
+    error = "; ".join(error for error in errors if error)
+    if same_failed_target and not error:
+        error = str(state.get("error") or "").strip()
     next_state = {
         **state,
         "status": status,
@@ -203,9 +219,9 @@ def check_remote_update(repo_root: Path, *, fetch: bool = True) -> dict[str, Any
         "current_revision": local_revision,
         "latest_revision": latest_revision,
         "update_available": update_available,
-        "user_requested": bool(update_available and state.get("user_requested")),
+        "user_requested": user_requested,
         "last_checked_at": utc_now_iso(),
-        "error": "; ".join(error for error in errors if error),
+        "error": error,
     }
     save_update_state(repo_root, next_state)
     return load_update_state(repo_root)
@@ -268,6 +284,12 @@ def architect_update_check(
     reason = "no-update"
     if state["status"] == UPDATE_STATUS_UPGRADING:
         reason = "already-upgrading"
+    elif state["status"] == UPDATE_STATUS_FAILED:
+        reason = "failed-awaiting-user"
+        if state.get("user_requested"):
+            state["user_requested"] = False
+            save_update_state(repo_root, state)
+            state = load_update_state(repo_root)
     elif not state.get("update_available"):
         reason = "no-update"
     elif not state.get("user_requested"):
@@ -306,6 +328,7 @@ def mark_update_status(repo_root: Path, status: str, *, error: str = "") -> dict
         state["latest_version"] = state["current_version"]
     elif normalized_status == UPDATE_STATUS_FAILED:
         state["completed_at"] = utc_now_iso()
+        state["user_requested"] = False
     save_update_state(repo_root, state)
     return load_update_state(repo_root)
 
@@ -350,4 +373,7 @@ def update_badge_label(state: dict[str, Any], language: str = DEFAULT_LANGUAGE) 
 
 
 def update_badge_clickable(state: dict[str, Any]) -> bool:
-    return str(state.get("status") or "") in {UPDATE_STATUS_AVAILABLE, UPDATE_STATUS_PREPARED}
+    status = str(state.get("status") or "")
+    return status in {UPDATE_STATUS_AVAILABLE, UPDATE_STATUS_PREPARED} or (
+        status == UPDATE_STATUS_FAILED and bool(state.get("update_available"))
+    )

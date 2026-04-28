@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.4 - 2026-04-28
+
+- Fixed software update coordination so a failed update cannot be retried automatically by Architect until the user prepares the update again.
+- Kept failed updates clickable in the desktop update badge so the user can deliberately re-prepare the same target, while new remote targets return to the available-update state.
+- Hardened Dream, Architect, organization contribution, and organization maintenance runners so unexpected exceptions write failed lane status and release maintenance locks immediately.
+- Added model-first function-flow artifacts and conformance replay coverage for update retry gates, maintenance lock cleanup, and organization exchange boundaries.
+
 ## v0.4.3 - 2026-04-27
 
 - Fixed installer health checks on non-Windows CI runners so Windows-only Codex shell shims are not required when the installer did not create them.
