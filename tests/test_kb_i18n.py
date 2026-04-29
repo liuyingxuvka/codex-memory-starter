@@ -9,7 +9,13 @@ import yaml
 
 from local_kb.consolidate import consolidate_history
 from local_kb.desktop_app import _cover_title, _language_display, _language_from_display
-from local_kb.i18n import localized_entry, localized_route_label, localized_route_segment, missing_i18n_fields
+from local_kb.i18n import (
+    localized_entry,
+    localized_route_label,
+    localized_route_segment,
+    missing_i18n_fields,
+    route_segment_labels_path,
+)
 from local_kb.i18n_maintenance import build_i18n_actions, collect_route_segment_label_gaps
 from local_kb.store import write_yaml_file
 from local_kb.ui_data import build_route_view_payload
@@ -180,11 +186,54 @@ class KbI18nTests(unittest.TestCase):
             action = route_actions[0]
             self.assertEqual(action["target"]["kind"], "route-segment-labels")
             self.assertIn("system/new-branch/custom-leaf", action["routes"])
-            self.assertEqual(action["i18n_suggestion"]["apply_supported_mode"], "manual-code-change")
+            self.assertEqual(action["i18n_suggestion"]["apply_supported_mode"], "i18n-zh-CN")
             self.assertIn(
                 "Do not rename domain_path",
                 action["i18n_suggestion"]["canonical_route_policy"],
             )
+
+    def test_i18n_apply_mode_updates_ai_maintained_route_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            entry = _sample_entry()
+            entry["id"] = "model-route-i18n-apply"
+            entry["domain_path"] = ["system", "new-branch", "custom-leaf"]
+            entry_path = repo_root / "kb" / "public" / "system" / "new-branch" / "custom-leaf" / "model-route-i18n-apply.yaml"
+            write_yaml_file(entry_path, entry)
+            plan_path = repo_root / "kb" / "history" / "consolidation" / "route-i18n" / "i18n_zh-CN_plan.yaml"
+            write_yaml_file(
+                plan_path,
+                {
+                    "language": "zh-CN",
+                    "translations": {},
+                    "route_segment_labels": {
+                        "new-branch": "新分支",
+                        "custom-leaf": "自定义叶子",
+                    },
+                },
+            )
+
+            result = consolidate_history(
+                repo_root=repo_root,
+                run_id="route-i18n",
+                apply_mode="i18n-zh-CN",
+                i18n_plan_path=plan_path,
+            )
+
+            self.assertEqual(result["apply_summary"]["updated_entry_count"], 1)
+            self.assertTrue((route_segment_labels_path(repo_root)).exists())
+            self.assertEqual(
+                localized_route_label(["system", "new-branch", "custom-leaf"], "zh-CN", repo_root=repo_root),
+                "系统 / 新分支 / 自定义叶子",
+            )
+            self.assertEqual(localized_route_label(["system", "new-branch"], "en", repo_root=repo_root), "system / new-branch")
+
+            history_events = [
+                json.loads(line)
+                for line in (repo_root / "kb" / "history" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(history_events[-1]["event_type"], "route-i18n-updated")
 
     def test_chinese_card_cover_uses_localized_title_not_english_alias(self) -> None:
         card = {"id": "runtime-card", "title": "Codex 运行时工具环境中的对照式路线经验"}

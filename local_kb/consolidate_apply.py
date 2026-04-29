@@ -43,7 +43,12 @@ from local_kb.consolidate_suggestions import (
     describe_apply_eligibility,
 )
 from local_kb.history import build_history_event, record_history_event
-from local_kb.i18n import ZH_CN, merge_i18n_payload, missing_i18n_fields
+from local_kb.i18n import (
+    ZH_CN,
+    merge_i18n_payload,
+    missing_i18n_fields,
+    write_ai_route_segment_labels,
+)
 from local_kb.i18n_maintenance import build_i18n_actions, load_i18n_plan, translation_for_entry
 from local_kb.semantic_review import (
     SEMANTIC_REVIEW_AUTO_APPLY_DECISIONS,
@@ -908,6 +913,9 @@ def apply_i18n_actions(
     skipped_actions: list[dict[str, Any]] = []
     updated_at = generated_at[:10]
     plan_language = str(plan.get("language") or "")
+    route_segment_labels = plan.get("route_segment_labels", {})
+    if not isinstance(route_segment_labels, dict):
+        route_segment_labels = {}
     if i18n_plan_path:
         try:
             relative_plan_path = relative_repo_path(repo_root, i18n_plan_path)
@@ -919,14 +927,67 @@ def apply_i18n_actions(
     for action in actions:
         if action.get("action_type") != "review-i18n":
             if action.get("action_type") == "review-route-i18n":
-                skipped_actions.append(
-                    _build_skipped_apply_action(
-                        action,
-                        (
-                            "Route display labels require an AI-authored code patch; "
-                            "i18n-zh-CN apply only updates entry text translations."
-                        ),
+                if plan_language != ZH_CN:
+                    skipped_actions.append(_build_skipped_apply_action(action, "i18n plan language must be zh-CN."))
+                    continue
+                missing_segments = [
+                    str(item.get("segment") or "").strip().lower()
+                    for item in action.get("signals", {}).get("missing_route_segment_labels", [])
+                    if isinstance(item, dict) and str(item.get("segment") or "").strip()
+                ]
+                selected_labels = {
+                    segment: str(route_segment_labels.get(segment) or "").strip()
+                    for segment in missing_segments
+                    if str(route_segment_labels.get(segment) or "").strip()
+                }
+                if not selected_labels:
+                    skipped_actions.append(
+                        _build_skipped_apply_action(
+                            action,
+                            "No AI-authored route_segment_labels payload was provided for missing route segments.",
+                        )
                     )
+                    continue
+                label_path = write_ai_route_segment_labels(
+                    repo_root,
+                    selected_labels,
+                    language=ZH_CN,
+                    updated_at=updated_at,
+                )
+                relative_label_path = relative_repo_path(repo_root, label_path)
+                history_event = build_history_event(
+                    "route-i18n-updated",
+                    source={
+                        "kind": "consolidation-apply",
+                        "agent": "kb-consolidate",
+                        "run_id": run_id,
+                    },
+                    target={
+                        "kind": "route-segment-labels",
+                        "entry_path": relative_label_path,
+                        "scope": "display",
+                        "domain_path": [],
+                    },
+                    rationale=f"Applied AI-authored zh-CN route labels for {action['action_key']}",
+                    context={
+                        "action_key": action["action_key"],
+                        "auto_apply_mode": APPLY_MODE_I18N_ZH_CN,
+                        "language": ZH_CN,
+                        "i18n_plan_path": relative_plan_path,
+                        "route_label_path": relative_label_path,
+                        "updated_segments": sorted(selected_labels),
+                    },
+                )
+                record_history_event(repo_root, history_event)
+                updated_entries.append(
+                    {
+                        "action_key": action["action_key"],
+                        "entry_id": "",
+                        "entry_path": relative_label_path,
+                        "language": ZH_CN,
+                        "updated_route_segments": sorted(selected_labels),
+                        "remaining_missing_i18n_fields": [],
+                    }
                 )
                 continue
             skipped_actions.append(

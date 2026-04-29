@@ -41,7 +41,7 @@ Current user instructions still override repository files.
 17. Do not create new candidates merely because the tooling can; use new-candidates only when backlog triage shows the scaffold would improve future retrieval.
 18. If an apply mode contains both approved and unapproved actions, use selected action keys instead of skipping the whole lane: `--action-key <approved-action-key>` may be repeated. Skip only when the approved set cannot be named by exact action key.
 19. Limit semantic-review to at most 3 trusted-card modifications per run.
-20. Run zh-CN display translation cleanup after candidate/card creation or semantic text changes.
+20. Run exactly one final AI-authored zh-CN display completion checkpoint after candidate/card creation, semantic text changes, and route review are done. This single checkpoint covers card display fields and route/path display labels, writes missing route labels through the i18n plan, and replaces separate mid-run translation cleanup.
 21. Keep taxonomy rewrites proposal-only unless current tooling cleanly supports the exact change.
 22. Inspect rollback artifacts when needed, including history-events, related-card-entries, cross-index-entries, and semantic-review-entries when present.
 23. Attempt supported low-risk repairs and rerun the relevant validation when a command exposes a fixable issue.
@@ -52,4 +52,4 @@ Current user instructions still override repository files.
 
 ## Report
 
-Report the run id, checkpoint status, self-preflight entries, what became more accurate, clearer, or easier to retrieve, observation counts reviewed, candidates created or deliberately not created, weak/noisy material rejected or kept history-only, route adjustments or concerns, similar-card merge checkpoint decisions, overloaded-card split checkpoint decisions, organization Skill bundle consolidation decisions, semantic-review decisions applied or skipped, translations updated or still missing, validations run, repaired or proposal-only issues, maintenance decisions, postflight observation status, undeclared taxonomy gaps, hub-vs-overloaded card reviews, and next proposal-only targets.
+Report the run id, checkpoint status, self-preflight entries, what became more accurate, clearer, or easier to retrieve, observation counts reviewed, candidates created or deliberately not created, weak/noisy material rejected or kept history-only, route adjustments or concerns, similar-card merge checkpoint decisions, overloaded-card split checkpoint decisions, organization Skill bundle consolidation decisions, semantic-review decisions applied or skipped, final zh-CN display completion status for cards and routes, translations updated or still missing, validations run, repaired or proposal-only issues, maintenance decisions, postflight observation status, undeclared taxonomy gaps, hub-vs-overloaded card reviews, and next proposal-only targets.

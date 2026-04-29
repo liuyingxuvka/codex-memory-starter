@@ -59,6 +59,9 @@ class CodexInstallTests(unittest.TestCase):
         self.assertIn("final sleep postflight check", prompt_text)
         self.assertIn("structured observation", prompt_text)
         self.assertIn("Do not rerun `kb_consolidate.py`", prompt_text)
+        self.assertIn("final AI zh-CN display completion checkpoint", prompt_text)
+        self.assertIn("route_segment_labels", prompt_text)
+        self.assertIn("Do not run separate mid-run translation cleanup", prompt_text)
 
     def test_install_writes_global_skill_launcher_and_manifest(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -168,6 +171,8 @@ class CodexInstallTests(unittest.TestCase):
             self.assertIn("organization Skill bundle consolidation checkpoint", sleep_skill_text)
             self.assertIn("Do not skip the merge, split, or Skill bundle consolidation checkpoint itself", sleep_skill_text)
             self.assertIn("mechanical apply eligibility", sleep_skill_text)
+            self.assertIn("final AI-authored zh-CN display completion checkpoint", sleep_skill_text)
+            self.assertIn("route/path display labels", sleep_skill_text)
             self.assertIn("--status completed --run-id <run_id> --json", sleep_skill_text)
             self.assertIn("allow_implicit_invocation: false", sleep_skill_openai)
             self.assertIn("$kb-sleep-maintenance", sleep_skill_openai)
@@ -275,6 +280,9 @@ class CodexInstallTests(unittest.TestCase):
             self.assertIn("recursively consolidating", sleep_toml)
             self.assertIn("selected action keys", sleep_toml)
             self.assertIn("--action-key", sleep_toml)
+            self.assertIn("final AI-authored zh-CN", sleep_toml)
+            self.assertIn("route/path display labels", sleep_toml)
+            self.assertIn("do not run separate mid-run translation cleanup", sleep_toml)
             self.assertIn("same run id", sleep_toml)
             self.assertIn("--status completed --run-id <run_id> --json", sleep_toml)
             self.assertIn(str(repo_root).replace("\\", "\\\\"), sleep_toml)
@@ -344,6 +352,9 @@ class CodexInstallTests(unittest.TestCase):
             self.assertIn("blocked execution states", architect_toml)
             self.assertIn("validation bundle", architect_toml)
             self.assertIn("postflight observation status", architect_toml)
+            self.assertIn("system-readable maintenance rollup", architect_toml)
+            self.assertIn("content-boundary", architect_toml)
+            self.assertIn("install-sync status", architect_toml)
 
             org_contribute_toml = (
                 codex_home / "automations" / "kb-org-contribute" / "automation.toml"

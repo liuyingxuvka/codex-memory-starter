@@ -12,7 +12,14 @@ from local_kb.consolidate import APPLY_MODE_NONE, consolidate_history, sanitize_
 from local_kb.consolidate_events import load_history_events, relative_repo_path
 from local_kb.feedback import build_observation, record_observation
 from local_kb.history import build_history_event, record_history_event
-from local_kb.maintenance_lanes import acquire_lane_lock, build_lane_guard, release_lane_lock, write_lane_status
+from local_kb.maintenance_lanes import (
+    acquire_lane_lock,
+    build_lane_guard,
+    lane_status_path,
+    read_lane_status,
+    release_lane_lock,
+    write_lane_status,
+)
 from local_kb.search import render_search_payload, search_entries
 from local_kb.store import history_events_path
 
@@ -20,6 +27,8 @@ from local_kb.store import history_events_path
 ARCHITECT_SCHEMA_VERSION = 1
 ARCHITECT_REPORT_KIND = "local-kb-architect-report"
 ARCHITECT_QUEUE_KIND = "local-kb-architect-proposal-queue"
+ARCHITECT_SYSTEM_ROLLUP_KIND = "local-kb-system-maintenance-rollup"
+CONTENT_BOUNDARY_KIND = "local-kb-content-boundary-report"
 ARCHITECT_ROUTE_HINT = "system/knowledge-library/maintenance"
 ARCHITECT_PREFLIGHT_QUERY = (
     "KB Architect automation proposal queue lifecycle evidence impact safety "
@@ -33,6 +42,7 @@ PROPOSALS_FILENAME = "proposals.json"
 DECISIONS_FILENAME = "decisions.json"
 EXECUTION_PLAN_FILENAME = "execution_plan.json"
 REPORT_FILENAME = "report.json"
+SYSTEM_ROLLUP_FILENAME = "maintenance_rollup.json"
 QUEUE_FILENAME = "proposal_queue.json"
 TRIAL_SELECTION_FILENAME = "sandbox_trial_selection.json"
 
@@ -214,6 +224,318 @@ def architect_queue_path(repo_root: Path) -> Path:
     return architecture_root(repo_root) / QUEUE_FILENAME
 
 
+def architect_rollup_path(repo_root: Path) -> Path:
+    return architecture_root(repo_root) / SYSTEM_ROLLUP_FILENAME
+
+
+def _bounded_file_count(path: Path, *, limit: int = 1000) -> int:
+    if not path.exists():
+        return 0
+    if path.is_file():
+        return 1
+    count = 0
+    for child in path.rglob("*"):
+        if child.is_file():
+            count += 1
+            if count >= limit:
+                return count
+    return count
+
+
+def build_content_boundary_report(repo_root: Path, *, generated_at: str | None = None) -> dict[str, Any]:
+    generated_at = generated_at or utc_now_iso()
+    scope_specs = [
+        {
+            "scope": "formal_public_cards",
+            "path": "kb/public",
+            "owner": "Sleep semantic review",
+            "content_type": "trusted public retrieval surface",
+            "release_class": "formal",
+            "review_before_public_release": False,
+            "policy": "Eligible for normal public release after validation and privacy review.",
+        },
+        {
+            "scope": "formal_private_cards",
+            "path": "kb/private",
+            "owner": "Sleep semantic review",
+            "content_type": "private retrieval surface",
+            "release_class": "private-local",
+            "review_before_public_release": True,
+            "policy": "Keep out of public release unless the user explicitly approves the exact content.",
+        },
+        {
+            "scope": "candidate_review_cards",
+            "path": "kb/candidates",
+            "owner": "Sleep candidate review",
+            "content_type": "untrusted candidate review surface",
+            "release_class": "candidate",
+            "review_before_public_release": True,
+            "policy": "Do not treat as trusted memory until Sleep promotes or rejects it.",
+        },
+        {
+            "scope": "adopted_candidate_cache",
+            "path": "kb/candidates/adopted",
+            "owner": "maintenance import/adoption",
+            "content_type": "local adoption cache and sandbox residue",
+            "release_class": "local-cache",
+            "review_before_public_release": True,
+            "policy": "Review explicitly before release or promotion; this is not formal card scope.",
+        },
+        {
+            "scope": "history_and_reports",
+            "path": "kb/history",
+            "owner": "system maintenance",
+            "content_type": "audit history, proposals, and machine reports",
+            "release_class": "system-evidence",
+            "review_before_public_release": False,
+            "policy": "System-readable evidence; not a user-facing trusted-card surface.",
+        },
+        {
+            "scope": "local_runtime_state",
+            "path": ".local",
+            "owner": "local runtime",
+            "content_type": "machine-local state",
+            "release_class": "machine-local",
+            "review_before_public_release": True,
+            "policy": "Never publish or sync unless a separate explicit migration step requires it.",
+        },
+    ]
+    scopes: list[dict[str, Any]] = []
+    review_scopes: list[str] = []
+    local_only_scopes: list[str] = []
+    for spec in scope_specs:
+        path = repo_root / str(spec["path"])
+        file_count = _bounded_file_count(path)
+        scope = dict(spec)
+        scope["exists"] = path.exists()
+        scope["file_count"] = file_count
+        scope["relative_path"] = str(spec["path"])
+        if file_count and bool(spec["review_before_public_release"]):
+            review_scopes.append(str(spec["scope"]))
+        if str(spec["release_class"]) in {"private-local", "local-cache", "machine-local"} and file_count:
+            local_only_scopes.append(str(spec["scope"]))
+        scopes.append(scope)
+
+    return {
+        "schema_version": ARCHITECT_SCHEMA_VERSION,
+        "kind": CONTENT_BOUNDARY_KIND,
+        "generated_at": generated_at,
+        "scopes": scopes,
+        "release_gate": {
+            "review_required": bool(review_scopes),
+            "review_required_scopes": review_scopes,
+            "local_only_scopes_present": local_only_scopes,
+            "formal_scope": "kb/public",
+            "policy": (
+                "Treat formal cards, candidates, history reports, local caches, and private cards as separate "
+                "scopes. Release or update work must not promote, publish, or sync non-formal scopes without "
+                "an explicit review decision."
+            ),
+        },
+    }
+
+
+def _latest_matching_file(repo_root: Path, pattern: str) -> Path | None:
+    matches = [path for path in repo_root.glob(pattern) if path.is_file()]
+    if not matches:
+        return None
+    return max(matches, key=lambda path: path.stat().st_mtime)
+
+
+def _lane_source_report(repo_root: Path, lane: str) -> dict[str, Any]:
+    status = read_lane_status(repo_root, lane)
+    path = lane_status_path(repo_root, lane)
+    return {
+        "source_type": "lane-status",
+        "lane": lane,
+        "present": bool(status),
+        "status": str(status.get("status", "") or "missing"),
+        "run_id": str(status.get("run_id", "") or ""),
+        "path": relative_repo_path(repo_root, path),
+        "updated_at": str(status.get("updated_at", "") or ""),
+    }
+
+
+def _latest_report_source(repo_root: Path, name: str, pattern: str) -> dict[str, Any]:
+    path = _latest_matching_file(repo_root, pattern)
+    if path is None:
+        return {
+            "source_type": "latest-report",
+            "name": name,
+            "present": False,
+            "path": "",
+            "status": "missing",
+        }
+    report = load_json_object(path)
+    return {
+        "source_type": "latest-report",
+        "name": name,
+        "present": True,
+        "path": relative_repo_path(repo_root, path),
+        "status": str(report.get("status", "") or "unknown"),
+        "run_id": str(report.get("run_id", "") or ""),
+        "kind": str(report.get("kind", "") or ""),
+        "generated_at": str(report.get("generated_at", "") or ""),
+    }
+
+
+def _flowguard_source_report(repo_root: Path) -> dict[str, Any]:
+    path = repo_root / ".flowguard" / "adoption_log.jsonl"
+    if not path.exists():
+        return {
+            "source_type": "flowguard-adoption-log",
+            "present": False,
+            "path": relative_repo_path(repo_root, path),
+            "record_count": 0,
+            "latest_record": {},
+        }
+    record_count = 0
+    latest_record: dict[str, Any] = {}
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            raw = line.strip()
+            if not raw:
+                continue
+            record_count += 1
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = {"parse_error": True, "raw": raw[:200]}
+            if isinstance(parsed, dict):
+                latest_record = parsed
+    return {
+        "source_type": "flowguard-adoption-log",
+        "present": True,
+        "path": relative_repo_path(repo_root, path),
+        "record_count": record_count,
+        "latest_record": latest_record,
+    }
+
+
+def _installation_source_report(repo_root: Path) -> dict[str, Any]:
+    try:
+        from local_kb.install import build_installation_check
+
+        check = build_installation_check(repo_root=repo_root)
+    except Exception as exc:  # pragma: no cover - defensive reporting
+        return {
+            "source_type": "install-check",
+            "present": False,
+            "ok": False,
+            "status": "error",
+            "issues": [f"{type(exc).__name__}: {exc}"],
+            "warning_count": 0,
+        }
+    checklist = [
+        {
+            "id": str(item.get("id", "") or ""),
+            "ok": bool(item.get("ok")),
+        }
+        for item in check.get("checklist", [])
+        if isinstance(item, dict)
+    ]
+    return {
+        "source_type": "install-check",
+        "present": True,
+        "ok": bool(check.get("ok")),
+        "status": "ok" if check.get("ok") else "attention-needed",
+        "issue_count": len(check.get("issues", [])),
+        "warning_count": len(check.get("warnings", [])),
+        "issues": list(check.get("issues", []))[:5],
+        "checklist": checklist,
+    }
+
+
+def build_architect_system_rollup(
+    repo_root: Path,
+    *,
+    architect_report: dict[str, Any],
+    generated_at: str | None = None,
+) -> dict[str, Any]:
+    generated_at = generated_at or utc_now_iso()
+    content_boundary = build_content_boundary_report(repo_root, generated_at=generated_at)
+    install_report = _installation_source_report(repo_root)
+    source_reports = {
+        "sleep": _lane_source_report(repo_root, "kb-sleep"),
+        "dream": _latest_report_source(repo_root, "dream", "kb/history/dream/*/report.json"),
+        "architect": {
+            "source_type": "current-architect-report",
+            "present": bool(architect_report),
+            "status": str(architect_report.get("status", "") or "unknown"),
+            "run_id": str(architect_report.get("run_id", "") or ""),
+            "path": str(architect_report.get("artifact_paths", {}).get("report_path", "") or ""),
+            "kind": str(architect_report.get("kind", "") or ""),
+        },
+        "flowguard": _flowguard_source_report(repo_root),
+        "organization": {
+            "source_type": "lane-status-group",
+            "present": bool(read_lane_status(repo_root, "kb-org-contribute"))
+            or bool(read_lane_status(repo_root, "kb-org-maintenance")),
+            "lanes": {
+                "kb-org-contribute": _lane_source_report(repo_root, "kb-org-contribute"),
+                "kb-org-maintenance": _lane_source_report(repo_root, "kb-org-maintenance"),
+            },
+        },
+        "install": install_report,
+    }
+    missing_sources = [
+        name
+        for name, report in source_reports.items()
+        if isinstance(report, dict) and not bool(report.get("present"))
+    ]
+    release_gate = {
+        "install_sync_ok": bool(install_report.get("ok")),
+        "content_boundary_review_required": bool(content_boundary["release_gate"]["review_required"]),
+        "ready_for_public_release": bool(install_report.get("ok"))
+        and not bool(content_boundary["release_gate"]["review_required"]),
+        "review_required_scopes": list(content_boundary["release_gate"]["review_required_scopes"]),
+    }
+    attention_needed = bool(missing_sources) or not release_gate["install_sync_ok"] or release_gate["content_boundary_review_required"]
+    return {
+        "schema_version": ARCHITECT_SCHEMA_VERSION,
+        "kind": ARCHITECT_SYSTEM_ROLLUP_KIND,
+        "generated_at": generated_at,
+        "summary_status": "attention-needed" if attention_needed else "clean",
+        "architect_current_run": {
+            "run_id": str(architect_report.get("run_id", "") or ""),
+            "status": str(architect_report.get("status", "") or ""),
+            "report_path": str(architect_report.get("artifact_paths", {}).get("report_path", "") or ""),
+        },
+        "source_reports": source_reports,
+        "missing_source_reports": missing_sources,
+        "content_boundary": content_boundary,
+        "readiness": {
+            "release_gate": release_gate,
+            "policy": (
+                "Architect owns this system-readable rollup. Sleep, Dream, FlowGuard, organization maintenance, "
+                "content boundaries, and install sync should be checked here before release or broad maintenance."
+            ),
+        },
+        "artifact_paths": {
+            "rollup_path": relative_repo_path(repo_root, architect_rollup_path(repo_root)),
+        },
+    }
+
+
+def _write_architect_report_and_rollup(
+    repo_root: Path,
+    run_dir: Path,
+    report: dict[str, Any],
+    *,
+    generated_at: str,
+) -> dict[str, Any]:
+    artifact_paths = report.setdefault("artifact_paths", {})
+    if isinstance(artifact_paths, dict):
+        artifact_paths["system_rollup_path"] = relative_repo_path(repo_root, architect_rollup_path(repo_root))
+    rollup = build_architect_system_rollup(repo_root, architect_report=report, generated_at=generated_at)
+    write_json_file(architect_rollup_path(repo_root), rollup)
+    report["system_rollup_status"] = rollup["summary_status"]
+    report["system_rollup_missing_source_reports"] = rollup["missing_source_reports"]
+    report["system_rollup_release_gate"] = rollup["readiness"]["release_gate"]
+    write_json_file(run_dir / REPORT_FILENAME, report)
+    return rollup
+
+
 def build_architect_guards(repo_root: Path) -> dict[str, Any]:
     lane_guard = build_lane_guard(repo_root, "kb-architect")
     return {
@@ -293,6 +615,7 @@ def build_initial_execution_plan(
             _checkpoint("sandbox-trial-selection", "Select at most one sandbox-ready packet for this Architect pass"),
             _checkpoint("postflight-observation", "Append one KB observation for this Architect run"),
             _checkpoint("report", "Write final Architect report"),
+            _checkpoint("system-rollup", "Write the system-readable maintenance rollup"),
         ],
     }
 
@@ -1150,7 +1473,7 @@ def _write_sandbox_trial_final_state(
         artifact_paths = report.setdefault("artifact_paths", {})
         if isinstance(artifact_paths, dict):
             artifact_paths["trial_final_state_path"] = relative_repo_path(repo_root, final_state_path)
-        write_json_file(report_path, report)
+        _write_architect_report_and_rollup(repo_root, run_dir, report, generated_at=generated_at)
         report_updated = True
 
     return {
@@ -1759,6 +2082,12 @@ def run_architect_maintenance(
                 f"Wrote skip observation {event_id}.",
             )
             _set_checkpoint_status(execution_plan, "report", "completed", "Skip report prepared.")
+            _set_checkpoint_status(
+                execution_plan,
+                "system-rollup",
+                "completed",
+                f"Wrote {relative_repo_path(repo_root, architect_rollup_path(repo_root))}.",
+            )
             execution_plan["status"] = "skipped"
             execution_plan["completed_at"] = utc_now_iso()
             write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
@@ -1781,7 +2110,7 @@ def run_architect_maintenance(
             result["lane_lock"] = lane_lock
             result["lock_release"] = release_lane_lock(repo_root, "kb-architect", run_id=resolved_run_id)
             lock_released = True
-            write_json_file(run_dir / REPORT_FILENAME, result)
+            _write_architect_report_and_rollup(repo_root, run_dir, result, generated_at=generated_at)
             return result
 
         preflight = _build_preflight(repo_root, run_id=resolved_run_id, generated_at=generated_at)
@@ -1880,6 +2209,12 @@ def run_architect_maintenance(
             f"Wrote Architect observation {observation_event_id}.",
         )
         _set_checkpoint_status(execution_plan, "report", "completed", "Report payload prepared.")
+        _set_checkpoint_status(
+            execution_plan,
+            "system-rollup",
+            "completed",
+            f"Wrote {relative_repo_path(repo_root, architect_rollup_path(repo_root))}.",
+        )
         execution_plan["status"] = "completed"
         execution_plan["completed_at"] = utc_now_iso()
         write_json_file(run_dir / EXECUTION_PLAN_FILENAME, execution_plan)
@@ -1927,11 +2262,10 @@ def run_architect_maintenance(
                 "source_consolidation_proposal_path": consolidation.get("artifact_paths", {}).get("proposal_path", ""),
             },
         }
-        write_json_file(run_dir / REPORT_FILENAME, result)
         write_lane_status(repo_root, "kb-architect", "completed", run_id=resolved_run_id)
         result["lock_release"] = release_lane_lock(repo_root, "kb-architect", run_id=resolved_run_id)
         lock_released = True
-        write_json_file(run_dir / REPORT_FILENAME, result)
+        _write_architect_report_and_rollup(repo_root, run_dir, result, generated_at=generated_at)
         return result
     except Exception as exc:
         write_lane_status(repo_root, "kb-architect", "failed", run_id=resolved_run_id, note=f"{type(exc).__name__}: {exc}")

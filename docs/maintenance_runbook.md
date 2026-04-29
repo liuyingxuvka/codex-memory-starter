@@ -62,11 +62,11 @@ The repository installer is expected to provision a repo-managed `KB Sleep` cron
    - `--apply-mode new-candidates` for route-grouped candidate scaffolds
    - `--apply-mode related-cards` for direct related-card maintenance
    - `--apply-mode cross-index` for stable alternate-route maintenance on `cross_index`
-   - `--apply-mode i18n-zh-CN --i18n-plan <path>` for AI-authored Chinese display translations
+   - `--apply-mode i18n-zh-CN --i18n-plan <path>` for the final AI-authored Chinese display completion pass covering card fields and route/path display labels
    - `--apply-mode semantic-review --semantic-review-plan <path>` for AI-authored keep/rewrite/confidence/promotion/demotion/deprecation decisions
-   - `review-route-i18n` actions are not auto-applied; patch the route display-label map manually and keep canonical routes unchanged
+   - `review-route-i18n` actions are resolved only by the final AI-authored i18n plan through `route_segment_labels`; keep canonical routes unchanged
    - `new-candidates` requires concrete future utility: complete predictive evidence plus an actionable `operational_use`; low-confidence seeds are allowed, low-utility observations stay history-only
-   - after any candidate/card creation pass, inspect `apply_summary.i18n_followup`; if it says translations are required, treat i18n as the final cleanup stage for that sleep pass
+   - after every selected candidate/card creation or semantic-review pass is finished, treat zh-CN display completion as one final checkpoint for that sleep pass, not as repeated mid-run cleanup
    - after any candidate/card creation or review pass, inspect route quality; prefer functional, reusable `domain_path` routes and keep project/repository/product names as provenance or tags unless the card is truly project-specific
 8. Inspect per-action proposal stubs with `kb_proposals.py`.
    - When a grouped route action includes explicit contrastive evidence, prefer candidate scaffolds whose main `predict.expected_result` reflects the stronger revised path and whose `predict.alternatives` preserves the weaker earlier branch.
@@ -82,9 +82,10 @@ The repository installer is expected to provision a repo-managed `KB Sleep` cron
 13. If needed, generate a rollback manifest with `kb_rollback.py inspect --write-manifest`.
 14. If the pass produced a bad low-risk apply, restore `history-events` from the snapshot.
 15. Rerun or inspect the relevant validation after any repair or apply lane before advancing the plan.
-16. Run a final sleep postflight check and append one structured maintenance observation when the pass exposed a reusable lesson, miss, process weakness, route gap, card weakness, split signal, translation gap, or apply hazard.
-17. After writing that final maintenance observation, stop the current pass rather than immediately processing the new event.
-18. Leave higher-risk work that is not represented as a supported semantic-review decision as proposal-only for a later AI maintenance pass.
+16. Run the final AI zh-CN display completion checkpoint once, covering missing card display fields and route/path display labels through one i18n plan when needed.
+17. Run a final sleep postflight check and append one structured maintenance observation when the pass exposed a reusable lesson, miss, process weakness, route gap, card weakness, split signal, translation gap, or apply hazard.
+18. After writing that final maintenance observation, stop the current pass rather than immediately processing the new event.
+19. Leave higher-risk work that is not represented as a supported semantic-review decision as proposal-only for a later AI maintenance pass.
 
 ## Commands To Run Now
 
@@ -207,7 +208,7 @@ decisions:
         guidance: Updated operational guidance.
 ```
 
-Apply AI-authored zh-CN display translations:
+Apply the final AI-authored zh-CN display completion plan:
 
 ```powershell
 python .agents/skills/local-kb-retrieve/scripts/kb_consolidate.py `
@@ -218,7 +219,7 @@ python .agents/skills/local-kb-retrieve/scripts/kb_consolidate.py `
   --json
 ```
 
-The i18n plan should be a local YAML file authored by the maintenance AI:
+The i18n plan should be one local YAML file authored by the maintenance AI. It may contain both card display translations and route/path display labels:
 
 ```yaml
 language: zh-CN
@@ -236,9 +237,11 @@ translations:
           result: 中文分支结果
     use:
       guidance: 中文使用方式
+route_segment_labels:
+  new-route-segment: 新路径段
 ```
 
-Route segment display labels are handled separately from card text translations. If proposal output includes `review-route-i18n`, inspect `signals.missing_route_segment_labels`, then patch the zh-CN route segment display map in code. Do not rename `domain_path`, `cross_index`, taxonomy routes, search hints, or file paths.
+Route segment display labels are maintained by the same final AI-authored i18n plan through `route_segment_labels`. If proposal output includes `review-route-i18n`, inspect `signals.missing_route_segment_labels`, add the missing labels to that plan, and let `--apply-mode i18n-zh-CN` write the display layer. Do not rename `domain_path`, `cross_index`, taxonomy routes, search hints, or file paths.
 
 Rollback semantic-review entry file changes from the apply report when a semantic apply performs worse:
 
@@ -366,7 +369,7 @@ python .agents/skills/local-kb-retrieve/scripts/kb_taxonomy.py `
   - if the supporting observations recorded weaker-path versus revised-path evidence, preserve that branch structure in the scaffold instead of flattening it into one success summary
 - Auto-apply `review-related-cards` actions only when repeated co-use of actually used `entry_ids` already supports a stable direct related-card set
 - Auto-apply `review-cross-index` actions only when repeated route evidence already supports a stable direct `cross_index` update
-- Auto-apply `review-i18n` actions only when an AI-authored `zh-CN` translation plan is supplied; English top-level fields remain canonical
+- Auto-apply `review-i18n` and `review-route-i18n` actions only during the final AI-authored `zh-CN` display completion checkpoint when a plan is supplied; English top-level fields and canonical routes remain canonical
 - Auto-apply semantic card changes only when an AI-authored semantic review plan is supplied; thresholds may trigger review pressure, but AI must decide the specific `keep`, `rewrite`, `adjust-confidence`, `promote`, `demote`, or `deprecate` action, cite the supporting action event ids, and include `utility_assessment`
 - Cap semantic-review trusted-card modifications at 3 per run, including trusted rewrites, trusted confidence changes, deprecations, demotions, and candidate promotions into trusted scope
 - Restore `kb/history/events.jsonl` from a consolidation snapshot
@@ -400,7 +403,7 @@ Goals:
 6. Only use --apply-mode new-candidates if the grouped actions are clearly low-risk and eligible.
 7. For semantic card changes, let AI judge the card content and author a semantic-review plan; do not let raw thresholds directly decide rewrite, promotion, demotion, or deprecation.
 8. Apply semantic-review only with evidence ids, risk, utility assessment, expected retrieval effect, rollback note, and the trusted-card modification cap of 3.
-9. After any candidate/card creation or semantic-review text change, inspect missing zh-CN display translations, author an i18n plan for missing fields, and run --apply-mode i18n-zh-CN as the final cleanup stage.
+9. After all selected candidate/card creation, semantic-review text changes, and route review are done, run exactly one final AI zh-CN display completion checkpoint: inspect missing card translations and route/path display labels, author one i18n plan with `translations` and `route_segment_labels`, and run --apply-mode i18n-zh-CN once if anything is missing.
 10. Review candidate routes: prefer functional, reusable domain paths; keep project names as provenance or tags unless the card is truly project-specific.
 11. Keep deterministic rules simple, but do not replace AI semantic judgment with raw thresholds.
 12. Inspect snapshot/proposal/apply artifacts for the run.
@@ -419,7 +422,7 @@ Report:
 - observation count reviewed
 - candidates created, if any
 - semantic-review decisions applied, reviewed, or skipped
-- zh-CN translations updated or still missing
+- final zh-CN display completion status for card fields and route/path display labels
 - maintenance decisions recorded, if any
 - validations run and whether failed checks were repaired or left proposal-only
 - final sleep postflight observation recorded, or why none was recorded

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 from typing import Any
 
 from local_kb.common import parse_route_segments
@@ -9,6 +10,7 @@ from local_kb.common import parse_route_segments
 DEFAULT_LANGUAGE = "en"
 ZH_CN = "zh-CN"
 SUPPORTED_LANGUAGES = (DEFAULT_LANGUAGE, ZH_CN)
+ROUTE_I18N_RELATIVE_PATH = Path("kb") / "i18n" / ZH_CN / "route_segments.yaml"
 
 LOCALIZABLE_SECTION_FIELDS = {
     "if": ("notes",),
@@ -207,6 +209,70 @@ ROUTE_SEGMENT_LABELS_ZH_CN = {
 }
 
 
+def route_segment_labels_path(repo_root: str | Path) -> Path:
+    return Path(repo_root) / ROUTE_I18N_RELATIVE_PATH
+
+
+def _normalize_route_segment_label_map(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    labels: dict[str, str] = {}
+    for raw_key, raw_label in value.items():
+        key = str(raw_key or "").strip().lower()
+        label = str(raw_label or "").strip()
+        if key and label:
+            labels[key] = label
+    return labels
+
+
+def load_ai_route_segment_labels(repo_root: str | Path, language: str = ZH_CN) -> dict[str, str]:
+    if normalize_language(language) != ZH_CN:
+        return {}
+    path = route_segment_labels_path(repo_root)
+    if not path.exists():
+        return {}
+    from local_kb.store import load_yaml_file
+
+    payload = load_yaml_file(path)
+    labels = payload.get("route_segment_labels", {}) if isinstance(payload, dict) else {}
+    return _normalize_route_segment_label_map(labels)
+
+
+def combined_route_segment_labels(repo_root: str | Path | None = None, language: str = ZH_CN) -> dict[str, str]:
+    if normalize_language(language) != ZH_CN:
+        return {}
+    labels = dict(ROUTE_SEGMENT_LABELS_ZH_CN)
+    if repo_root is not None:
+        labels.update(load_ai_route_segment_labels(repo_root, language))
+    return labels
+
+
+def write_ai_route_segment_labels(
+    repo_root: str | Path,
+    labels: dict[str, str],
+    *,
+    language: str = ZH_CN,
+    updated_at: str = "",
+) -> Path:
+    normalized_language = normalize_language(language)
+    if normalized_language != ZH_CN:
+        raise ValueError("Only zh-CN route segment labels are supported.")
+    existing = load_ai_route_segment_labels(repo_root, normalized_language)
+    merged = dict(existing)
+    merged.update(_normalize_route_segment_label_map(labels))
+    path = route_segment_labels_path(repo_root)
+    payload: dict[str, Any] = {
+        "language": ZH_CN,
+        "route_segment_labels": dict(sorted(merged.items())),
+    }
+    if updated_at:
+        payload["updated_at"] = updated_at
+    from local_kb.store import write_yaml_file
+
+    write_yaml_file(path, payload)
+    return path
+
+
 def normalize_language(value: Any) -> str:
     text = str(value or "").strip().lower()
     if text in {"zh", "zh-cn", "zh_cn", "chinese", "中文", "简体中文"}:
@@ -218,37 +284,49 @@ def language_label(language: str) -> str:
     return "中文" if normalize_language(language) == ZH_CN else "English"
 
 
-def localized_route_segment(segment: Any, language: str) -> str:
+def localized_route_segment(segment: Any, language: str, *, repo_root: str | Path | None = None) -> str:
     text = str(segment or "").strip()
     if not text:
         return ""
     if normalize_language(language) != ZH_CN:
         return text
-    return ROUTE_SEGMENT_LABELS_ZH_CN.get(text.lower(), text)
+    return combined_route_segment_labels(repo_root, language).get(text.lower(), text)
 
 
-def has_route_segment_label(segment: Any, language: str = ZH_CN) -> bool:
+def has_route_segment_label(segment: Any, language: str = ZH_CN, *, repo_root: str | Path | None = None) -> bool:
     text = str(segment or "").strip()
     if not text:
         return True
     if normalize_language(language) != ZH_CN:
         return True
-    return text.lower() in ROUTE_SEGMENT_LABELS_ZH_CN
+    return text.lower() in combined_route_segment_labels(repo_root, language)
 
 
-def localized_route_label(route: Any, language: str, *, empty_label: str = "root") -> str:
+def localized_route_label(
+    route: Any,
+    language: str,
+    *,
+    empty_label: str = "root",
+    repo_root: str | Path | None = None,
+) -> str:
     segments = parse_route_segments(route)
     if not segments:
         return empty_label
-    return " / ".join(localized_route_segment(segment, language) for segment in segments)
+    return " / ".join(localized_route_segment(segment, language, repo_root=repo_root) for segment in segments)
 
 
-def localized_route_title(route: Any, language: str, *, empty_label: str = "root") -> str:
+def localized_route_title(
+    route: Any,
+    language: str,
+    *,
+    empty_label: str = "root",
+    repo_root: str | Path | None = None,
+) -> str:
     segments = parse_route_segments(route)
     if not segments:
         return empty_label
     if normalize_language(language) == ZH_CN:
-        return " / ".join(localized_route_segment(segment, language) for segment in segments)
+        return " / ".join(localized_route_segment(segment, language, repo_root=repo_root) for segment in segments)
     return " / ".join(segment.replace("-", " ").title() for segment in segments)
 
 

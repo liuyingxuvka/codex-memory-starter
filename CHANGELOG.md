@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.6 - 2026-04-30
+
+- Made KB Sleep's Chinese display cleanup a single final AI-authored completion checkpoint that covers both card fields and route/path display labels.
+- Added an AI-maintained zh-CN route label display layer so canonical routes stay stable while missing path labels can be completed by the i18n apply path.
+- Added Architect's system-readable maintenance rollup with Sleep, Dream, Architect, FlowGuard, organization, content-boundary, and install-sync status in one place.
+- Added content-boundary reporting and release-gate visibility for formal cards, candidate review files, local adoption caches, history reports, private cards, and machine-local state.
+- Refreshed repository-managed Sleep/Architect prompts, runbooks, installer automation checks, FlowGuard adoption records, and regression coverage for the new maintenance flow.
+
 ## v0.4.5 - 2026-04-29
 
 - Refreshed the desktop card visual system with a broader premium palette, diagonal card/header gradients, larger title rings, and bold card titles.

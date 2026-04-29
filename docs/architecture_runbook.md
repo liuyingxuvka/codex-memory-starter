@@ -6,7 +6,7 @@ The default local cadence is Sleep at 12:00, Dream at 13:00, and Architect at 14
 
 `PROJECT_SPEC.md` remains authoritative. `docs/maintenance_agent_worldview.md` defines the shared Sleep/Dream/Architect judgment model. If this runbook and the spec disagree, follow the spec and simplify this runbook.
 
-The runner is a planner and queue maintainer, not a direct code editor. It should emit execution packets that tell a follow-on Architect agent which proposal is safe to apply now, which one needs a patch or human pass, and how to mark the result applied or blocked.
+The runner is a planner and queue maintainer, not a direct code editor. It should emit execution packets that tell a follow-on Architect agent which proposal is safe to apply now, which one needs a patch or human pass, and how to mark the result applied or blocked. Architect also owns the system-readable maintenance rollup at `kb/history/architecture/maintenance_rollup.json`, where the system can read Sleep, Dream, Architect, FlowGuard, organization, content-boundary, and install-sync status together.
 
 Before judging proposals, read the shared maintenance-agent worldview. Treat Architect as the mechanism engineer: its job is to make the operating system clearer and more reliable, then verify sandbox-upgrade trials before any real merge.
 
@@ -42,7 +42,8 @@ Each Architect pass must follow this order and keep the execution plan status cu
 16. Write `<planned_sandbox_path>/trial_result.json` with the trial decision, touched paths, validation results, manual checks, and reason, then close the packet with `python .agents/skills/local-kb-retrieve/scripts/kb_architect.py --record-trial-result <planned_sandbox_path>/trial_result.json --json`.
 17. Mark successful packets applied through the recorder; mark unsafe or unvalidated packets blocked with a concrete blocker.
 18. Confirm or append the final KB postflight observation.
-19. Report run id, checkpoint statuses, software update gate result, proposal status counts, selected sandbox trial, trial-result decision, execution packet modes, applied changes, blocked execution states, validations, and remaining watching items.
+19. Write or inspect `kb/history/architecture/maintenance_rollup.json` and confirm the rollup includes Sleep, Dream, current Architect report, FlowGuard adoption logs, organization maintenance status, content-boundary status, and install-sync status.
+20. Report run id, checkpoint statuses, software update gate result, proposal status counts, selected sandbox trial, trial-result decision, execution packet modes, applied changes, blocked execution states, validations, system-readable maintenance rollup status, and remaining watching items.
 
 If a checkpoint is not applicable, mark it skipped with a reason. Do not silently omit it.
 
@@ -177,6 +178,7 @@ The runner writes:
 - `kb/history/architecture/runs/<run-id>/decisions.json`
 - `kb/history/architecture/runs/<run-id>/execution_plan.json`
 - `kb/history/architecture/runs/<run-id>/report.json`
+- `kb/history/architecture/maintenance_rollup.json`
 - `kb/history/architecture/proposal_queue.json`
 
 The runner also appends one structured Architect observation to `kb/history/events.jsonl`.

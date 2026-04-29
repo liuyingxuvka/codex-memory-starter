@@ -209,14 +209,14 @@ Implementation boundary:
 Execution contract:
 
 1. Write a visible sleep execution plan before the first stateful maintenance command.
-2. Keep checkpoint statuses current: self-preflight, taxonomy/gap review, proposal inspection, high-volume triage, candidate-backlog triage, editorial review, safe apply lanes, maintenance decisions, i18n cleanup, validation, postflight, final report.
+2. Keep checkpoint statuses current: self-preflight, taxonomy/gap review, proposal inspection, high-volume triage, candidate-backlog triage, editorial review, safe apply lanes, maintenance decisions, final zh-CN display completion, validation, postflight, final report.
    Do not treat the pass as done until every checkpoint is completed, skipped with reason, or blocked with a concrete blocker.
 3. Inspect proposal artifacts as an editor:
    - observations: ignore, seed, group, route-adjust, or preserve as history-only
    - candidates: promote, rewrite, merge, split, reject, watch, or reroute
    - trusted cards: keep as hub, narrow, rewrite, adjust confidence, split, merge, demote, or deprecate
    - routes: improve cross-index, propose taxonomy cleanup, or leave unchanged
-   - translations: fill missing human display fields without changing canonical English routes
+   - translations: at the final zh-CN display completion checkpoint, fill missing human display fields and route/path display labels without changing canonical English routes
 4. Apply only changes that are supported by current tooling and whose expected retrieval improvement is clear.
 5. When a supported low-risk repair is available, try the supported repair path and rerun the relevant validation.
 6. When work is higher-risk or underspecified, leave it proposal-only and keep moving through the remaining safe checkpoints.
@@ -258,10 +258,9 @@ For alternate-route maintenance, `python .agents/skills/local-kb-retrieve/script
 10. For card semantic maintenance, inspect `review-candidate`, `review-confidence`, and `review-entry-update` stubs. If AI judgment supports a concrete decision, author `kb/history/consolidation/<run_id>-semantic/semantic_review_plan.yaml` and run:
 `python .agents/skills/local-kb-retrieve/scripts/kb_consolidate.py --json --run-id <run_id>-semantic --apply-mode semantic-review --semantic-review-plan kb/history/consolidation/<run_id>-semantic/semantic_review_plan.yaml`
    The plan must use decisions `keep`, `rewrite`, `adjust-confidence`, `promote`, `demote`, or `deprecate` for automatic apply. `split` and `merge` may be recorded as proposal-only until they are represented as concrete safe rewrites. Each applied decision must set `apply: true`, cite current action `evidence_event_ids`, include `rationale`, `risk`, `utility_assessment`, `expected_retrieval_effect`, and `rollback_note`, and respect the trusted-card budget of 3. Use `utility_assessment.judgment: useful` for `keep`, `rewrite`, `adjust-confidence`, or `promote`; use a non-useful judgment such as `low-utility`, `obsolete`, `misleading`, `unclear`, or `insufficient-evidence` for `demote` or `deprecate`.
-11. After candidate creation or any card text change, inspect missing Chinese display translations with:
-`python .agents/skills/local-kb-retrieve/scripts/kb_consolidate.py --json --apply-mode i18n-zh-CN --run-id <run_id>-i18n-check`
-   If the i18n apply report skips entries because no translation payload was provided, author `kb/history/consolidation/<run_id>-i18n/i18n_zh-CN_plan.yaml` and rerun:
+11. After all selected candidate creation, card text changes, semantic-review work, and route review are complete, run one final AI zh-CN display completion checkpoint. Inspect the current proposal output for `review-i18n` and `review-route-i18n`, then author one local `kb/history/consolidation/<run_id>-i18n/i18n_zh-CN_plan.yaml` with missing card display translations and missing `route_segment_labels`. Run the apply path once:
 `python .agents/skills/local-kb-retrieve/scripts/kb_consolidate.py --json --apply-mode i18n-zh-CN --run-id <run_id>-i18n --i18n-plan kb/history/consolidation/<run_id>-i18n/i18n_zh-CN_plan.yaml`
+   If there are no missing zh-CN card fields or route/path display labels, record the checkpoint as clean and do not run a duplicate empty translation apply. Do not run separate mid-run translation cleanup, do not maintain a manual route translation table, and do not rename canonical `domain_path`, `cross_index`, taxonomy routes, search hints, or file paths.
 12. Inspect the per-action proposal stubs for this run:
 `python .agents/skills/local-kb-retrieve/scripts/kb_proposals.py --run-id <run_id> --json`
    Treat `review-code-change` actions under `codex/workflow/skills` or `codex/skill-use/<skill-name>` as proposal-only Skill maintenance evidence for Architect. Do not patch Skill files from Sleep.
@@ -307,7 +306,7 @@ For alternate-route maintenance, `python .agents/skills/local-kb-retrieve/script
    - maintenance decisions recorded
    - final sleep postflight observation recorded, or why none was recorded
    - proposal stub counts by action type
-   - missing or updated zh-CN display translations
+   - final zh-CN display completion status, including card fields and route/path display labels
    - undeclared taxonomy branches
    - cards reviewed for keep-as-hub vs split-review
    - card updates or taxonomy changes still needed later

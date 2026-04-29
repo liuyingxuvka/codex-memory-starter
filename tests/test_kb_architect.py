@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from local_kb.architect import record_architect_sandbox_trial_result, run_architect_maintenance
+from local_kb.architect import (
+    architect_rollup_path,
+    build_content_boundary_report,
+    record_architect_sandbox_trial_result,
+    run_architect_maintenance,
+)
 from local_kb.feedback import build_observation, record_observation
 
 
@@ -54,6 +59,22 @@ class KBArchitectTests(unittest.TestCase):
             self.assertTrue((run_dir / "decisions.json").exists())
             self.assertTrue(result["history_event_ids"])
             self.assertGreaterEqual(result["patch_plan_count"], 1)
+            self.assertEqual(
+                result["artifact_paths"]["system_rollup_path"],
+                "kb/history/architecture/maintenance_rollup.json",
+            )
+            rollup_path = architect_rollup_path(repo_root)
+            self.assertTrue(rollup_path.exists())
+            rollup = json.loads(rollup_path.read_text(encoding="utf-8"))
+            self.assertEqual(rollup["kind"], "local-kb-system-maintenance-rollup")
+            self.assertEqual(rollup["architect_current_run"]["run_id"], "architect-test")
+            self.assertIn("sleep", rollup["source_reports"])
+            self.assertIn("dream", rollup["source_reports"])
+            self.assertIn("flowguard", rollup["source_reports"])
+            self.assertIn("organization", rollup["source_reports"])
+            self.assertIn("install", rollup["source_reports"])
+            self.assertIn("content_boundary", rollup)
+            self.assertIn("release_gate", rollup["readiness"])
 
     def test_skill_maintenance_signal_enters_architect_queue_as_patch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -524,6 +545,28 @@ class KBArchitectTests(unittest.TestCase):
         self.assertIn("scripts/khaos_brain_update.py --architect-check --json", prompt_text)
         self.assertIn("$khaos-brain-update", prompt_text)
         self.assertIn("software update gate result", prompt_text)
+        self.assertIn("system-readable maintenance rollup", prompt_text)
+
+    def test_content_boundary_report_separates_formal_candidate_and_local_scopes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / "kb" / "public" / "system").mkdir(parents=True, exist_ok=True)
+            (repo_root / "kb" / "public" / "system" / "trusted.yaml").write_text("id: trusted\n", encoding="utf-8")
+            (repo_root / "kb" / "candidates" / "adopted").mkdir(parents=True, exist_ok=True)
+            (repo_root / "kb" / "candidates" / "adopted" / "local.yaml").write_text("id: local\n", encoding="utf-8")
+            (repo_root / ".local").mkdir(parents=True, exist_ok=True)
+            (repo_root / ".local" / "state.json").write_text("{}", encoding="utf-8")
+
+            report = build_content_boundary_report(repo_root, generated_at="2026-04-29T00:00:00+00:00")
+
+            scopes = {item["scope"]: item for item in report["scopes"]}
+            self.assertEqual(scopes["formal_public_cards"]["release_class"], "formal")
+            self.assertEqual(scopes["adopted_candidate_cache"]["release_class"], "local-cache")
+            self.assertEqual(scopes["local_runtime_state"]["release_class"], "machine-local")
+            self.assertTrue(report["release_gate"]["review_required"])
+            self.assertIn("adopted_candidate_cache", report["release_gate"]["review_required_scopes"])
+            self.assertIn("local_runtime_state", report["release_gate"]["review_required_scopes"])
+            self.assertIn("adopted_candidate_cache", report["release_gate"]["local_only_scopes_present"])
 
 
 if __name__ == "__main__":

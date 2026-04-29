@@ -539,12 +539,12 @@ def _ui_text(language: str, key: str) -> str:
     return UI_TEXT.get(normalized, UI_TEXT[DEFAULT_LANGUAGE]).get(key, UI_TEXT[DEFAULT_LANGUAGE].get(key, key))
 
 
-def _route_label(route: Any, language: str = DEFAULT_LANGUAGE) -> str:
-    return localized_route_label(route, language, empty_label=_ui_text(language, "all_cards"))
+def _route_label(route: Any, language: str = DEFAULT_LANGUAGE, repo_root: Path | None = None) -> str:
+    return localized_route_label(route, language, empty_label=_ui_text(language, "all_cards"), repo_root=repo_root)
 
 
-def _route_title(route: Any, language: str = DEFAULT_LANGUAGE) -> str:
-    return localized_route_title(route, language, empty_label=_ui_text(language, "all_cards"))
+def _route_title(route: Any, language: str = DEFAULT_LANGUAGE, repo_root: Path | None = None) -> str:
+    return localized_route_title(route, language, empty_label=_ui_text(language, "all_cards"), repo_root=repo_root)
 
 
 def _short_text(value: Any, limit: int = 150) -> str:
@@ -1621,7 +1621,7 @@ class KbDesktopApp(tk.Tk):
                 rows.append(
                     (
                         child_route,
-                        localized_route_segment(item.get("segment") or child_route, self.language),
+                        localized_route_segment(item.get("segment") or child_route, self.language, repo_root=self.repo_root),
                         depth,
                         active,
                         ancestor,
@@ -1849,7 +1849,7 @@ class KbDesktopApp(tk.Tk):
         self.selected_index = -1
         self._card_selected_by_user = False
         self.hovered_index = -1
-        self._route_heading = _route_title(route, self.language)
+        self._route_heading = _route_title(route, self.language, self.repo_root)
         self._route_subtitle = self._text("predictive_memory_cards")
         self._render_sidebar()
         self._render_main()
@@ -1964,7 +1964,7 @@ class KbDesktopApp(tk.Tk):
             self.main.create_text(
                 content_left + u(18),
                 (route_y1 + route_y2) / 2,
-                text=_route_label(self.route, self.language),
+                text=_route_label(self.route, self.language, self.repo_root),
                 anchor="w",
                 fill=MUTED,
                 width=max(u(220), min(header_width, u(500)) - u(36)),
@@ -2459,8 +2459,8 @@ class KbDesktopApp(tk.Tk):
         self._insert_detail_section(text, self._text("predict"), card.get("predict"))
         self._insert_detail_section(text, self._text("use"), card.get("use"))
         text.insert("end", f"{self._text('routes_section')}\n", "heading")
-        cross_routes = [_route_label(route, self.language) for route in card.get("cross_index") or []]
-        text.insert("end", f"{self._text('primary')}: {_route_label(card.get('domain_path'), self.language)}\n")
+        cross_routes = [_route_label(route, self.language, self.repo_root) for route in card.get("cross_index") or []]
+        text.insert("end", f"{self._text('primary')}: {_route_label(card.get('domain_path'), self.language, self.repo_root)}\n")
         text.insert("end", f"{self._text('also')}: {'; '.join(cross_routes) or '-'}\n")
         text.insert("end", f"{self._text('related')}: {'; '.join(card.get('related_cards') or []) or '-'}\n\n")
         if self._should_show_source_metadata(card):

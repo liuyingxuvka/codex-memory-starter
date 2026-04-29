@@ -22,8 +22,8 @@ def _entry_id(entry: Any) -> str:
     return str(entry.data.get("id") or entry.path.stem)
 
 
-def _route_label(route: list[str], language: str = DEFAULT_LANGUAGE) -> str:
-    return localized_route_label(route, language, empty_label="root")
+def _route_label(route: list[str], language: str = DEFAULT_LANGUAGE, repo_root: Path | None = None) -> str:
+    return localized_route_label(route, language, empty_label="root", repo_root=repo_root)
 
 
 def _matches_prefix(route: list[str], prefix: list[str]) -> bool:
@@ -74,7 +74,7 @@ def summarize_entry(
         "status": data.get("status") or "",
         "confidence": data.get("confidence"),
         "domain_path": domain_path,
-        "domain_label": _route_label(domain_path, language),
+        "domain_label": _route_label(domain_path, language, repo_root),
         "cross_index": cross_index,
         "related_cards": normalize_string_list(data.get("related_cards", [])),
         "tags": data.get("tags", []),
@@ -214,7 +214,7 @@ def build_route_view_payload(
 
     return {
         "route": prefix,
-        "route_label": _route_label(prefix, normalized_language),
+        "route_label": _route_label(prefix, normalized_language, repo_root),
         "taxonomy": taxonomy_view,
         "cards": {
             "primary": primary,

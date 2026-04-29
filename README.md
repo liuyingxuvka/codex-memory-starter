@@ -10,8 +10,8 @@
 </p>
 <!-- README HERO END -->
 
-- Repository head (`main`) / 仓库主线（`main`）: `v0.4.5`
-- Latest released version / 最新已发布版本: `v0.4.5`
+- Repository head (`main`) / 仓库主线（`main`）: `v0.4.6`
+- Latest released version / 最新已发布版本: `v0.4.6`
 - Project name / 项目名称: `Khaos Brain`
 - 中文正文在前；后半部分是完整英文镜像。 / Chinese comes first; the second half is a full English mirror.
 

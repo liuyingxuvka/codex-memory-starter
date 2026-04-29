@@ -18,6 +18,7 @@ kb/history/*
 !kb/history/.gitkeep
 
 kb/candidates/*.yaml
+kb/candidates/adopted/
 kb/outbox/
 kb/history/consolidation/
 .local/

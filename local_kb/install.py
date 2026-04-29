@@ -103,8 +103,10 @@ SLEEP_AUTOMATION_PROMPT = (
     "AI-authored semantic-review, and AI-authored i18n apply paths when clearly eligible, "
     "use selected action keys with `--action-key` when only part of an apply lane is approved, "
     "require future utility before auto-creating candidate cards, require semantic-review utility assessments, "
-    "limit semantic-review to at most 3 trusted-card modifications per run, run zh-CN display translation cleanup "
-    "after candidate/card creation or semantic card text changes, keep taxonomy rewrites proposal-only unless current "
+    "limit semantic-review to at most 3 trusted-card modifications per run, run exactly one final AI-authored zh-CN "
+    "display completion checkpoint after candidate/card creation, semantic card text changes, and route review are done, "
+    "cover card display fields and route/path display labels in that single checkpoint through one i18n plan, do not "
+    "run separate mid-run translation cleanup, keep taxonomy rewrites proposal-only unless current "
     "tooling cleanly supports them, inspect rollback artifacts including history-events, related-card-entries, "
     "cross-index-entries, and semantic-review-entries when present, continue "
     "through every safe checkpoint instead of stopping after a short proposal, attempt supported low-risk repairs "
@@ -115,7 +117,7 @@ SLEEP_AUTOMATION_PROMPT = (
     "and report the run id, execution plan "
     "status, self-preflight entries, what became more accurate or clearer, reviewed observation counts, "
     "candidates created or deliberately not created, weak/noisy material rejected or kept history-only, route adjustments or concerns, "
-    "semantic-review decisions applied or skipped, translations updated or still missing, validations run, "
+    "semantic-review decisions applied or skipped, final zh-CN display completion status for cards and routes, translations updated or still missing, validations run, "
     "repaired or proposal-only issues, maintenance decisions, "
     "final postflight observation status, undeclared taxonomy gaps, hub-vs-overloaded card reviews, and the next "
     "proposal-only targets."
@@ -158,7 +160,8 @@ ARCHITECT_AUTOMATION_PROMPT = (
     "maintenance. Then run "
     "`python .agents/skills/local-kb-retrieve/scripts/kb_architect.py --json`, "
     "inspect the generated plan, preflight, signals, proposals, decisions, "
-    "execution-plan, report, and proposal_queue artifacts as incoming evidence, inspect the maintained queue before "
+    "execution-plan, report, and proposal_queue artifacts as incoming evidence, inspect the maintained queue and the "
+    "system-readable maintenance rollup at kb/history/architecture/maintenance_rollup.json before "
     "acting on new signals, start with queue hygiene by merging duplicates, closing resolved or obsolete items, and "
     "avoiding reopened terminal items unless there is a real regression, use only Evidence, Impact, and Safety for proposal "
     "review, keep statuses limited to new, watching, ready-for-patch, ready-for-apply, applied, rejected, and "
@@ -174,11 +177,11 @@ ARCHITECT_AUTOMATION_PROMPT = (
     "for medium-safety mechanism changes, mark successful packets applied and unsafe or failed packets blocked, "
     "create a new proposal only when the signal is not already represented by an active or terminal queue item, confirm the "
     "runner's KB postflight observation or append one structured Architect observation if a new mechanism lesson "
-    "was exposed, and report the run id, checkpoint status for every plan item, preflight entries retrieved, "
+    "was exposed, confirm the rollup contains Sleep, Dream, Architect, FlowGuard, organization, content-boundary, and install-sync status, and report the run id, checkpoint status for every plan item, preflight entries retrieved, "
     "software update gate result, "
     "proposal counts by status before and after queue hygiene, duplicate clusters merged or superseded, resolved or "
     "already-applied items closed, ready-for-apply and ready-for-patch items, sandbox-ready packets with planned sandbox path and write boundaries, execution packets by mode, changes "
-    "applied, validation bundle run, blocked execution states, postflight observation status, watching items left "
+    "applied, validation bundle run, blocked execution states, postflight observation status, system-readable maintenance rollup status, watching items left "
     "for long observation, and the system evolution route."
 )
 
@@ -1330,6 +1333,9 @@ def build_installation_check(
                     "structured maintenance observation",
                     "selected action keys",
                     "--action-key",
+                    "final AI-authored zh-CN",
+                    "route/path display labels",
+                    "do not run separate mid-run translation cleanup",
                     "--run-id <run_id>",
                     "same run id",
                     "status completed",
@@ -1371,6 +1377,9 @@ def build_installation_check(
                     "blocked execution states",
                     "validation bundle",
                     "postflight observation status",
+                    "system-readable maintenance rollup",
+                    "content-boundary",
+                    "install-sync status",
                 ):
                     if marker not in prompt_text:
                         issues_for_automation.append(

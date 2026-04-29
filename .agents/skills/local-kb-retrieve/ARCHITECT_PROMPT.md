@@ -44,6 +44,7 @@ Mandatory execution contract:
 5. Use only the three-axis decision model: `Evidence`, `Impact`, and `Safety`. Do not invent extra weighted scoring dimensions.
 6. Do not use a human-review status. Long-observation items remain `watching`.
 7. Finish with a KB postflight observation. If the runner already wrote one, inspect and report it; if the pass exposed an additional reusable mechanism lesson, append one more structured observation.
+8. Finish by writing or inspecting the system-readable maintenance rollup at `kb/history/architecture/maintenance_rollup.json`. Architect owns this rollup for the system itself, not for the desktop UI or manual filing.
 
 Required checkpoint order:
 
@@ -86,7 +87,8 @@ Required checkpoint order:
     - installer or automation changes: run installer tests plus `python scripts/install_codex_kb.py --check --json`
     - any failed validation must be fixed and rerun before the proposal can be marked applied
 16. Inspect the runner's postflight observation id and write an additional structured KB observation only if this pass exposed a new reusable mechanism lesson.
-17. Report:
+17. Inspect `kb/history/architecture/maintenance_rollup.json` and confirm it contains Sleep, Dream, current Architect report, FlowGuard adoption logs, organization maintenance status, content-boundary status, and install-sync status in one system-readable object.
+18. Report:
     - run id
     - plan status for every checkpoint
     - preflight entries retrieved
@@ -102,6 +104,7 @@ Required checkpoint order:
     - changes applied, if any
     - validations run
     - postflight observation status
+    - system-readable maintenance rollup status, missing source reports, content-boundary gate, and install-sync gate
     - items left watching
     - system evolution route: what mechanism area is stabilizing, what changed in this pass, what remains the next highest-value mechanism direction, and what was deliberately deferred
 

@@ -33,7 +33,7 @@ def collect_route_segment_label_gaps(repo_root: Path, language: str = ZH_CN) -> 
         route_refs = _entry_route_refs(data)
         for route_ref in route_refs:
             for segment in parse_route_segments(route_ref):
-                if has_route_segment_label(segment, normalized_language):
+                if has_route_segment_label(segment, normalized_language, repo_root=repo_root):
                     continue
                 gap = gaps.setdefault(segment, {"entry_ids": set(), "example_routes": set()})
                 if entry_id:
@@ -93,11 +93,11 @@ def build_route_segment_i18n_actions(repo_root: Path, language: str = ZH_CN) -> 
             "i18n_suggestion": {
                 "language": normalized_language,
                 "missing_route_segment_labels": missing_segments,
-                "required_artifact": "AI-authored code patch to ROUTE_SEGMENT_LABELS_ZH_CN",
-                "apply_supported_mode": "manual-code-change",
+                "required_artifact": "AI-authored i18n translation plan YAML with route_segment_labels",
+                "apply_supported_mode": APPLY_MODE_I18N_ZH_CN,
                 "canonical_route_policy": (
                     "Do not rename domain_path, cross_index, taxonomy routes, or search paths; "
-                    "only add missing display labels."
+                    "only add missing display labels to the AI-maintained display layer."
                 ),
             },
         }
@@ -158,7 +158,7 @@ def build_i18n_actions(repo_root: Path, language: str = ZH_CN) -> list[dict[str,
 
 def load_i18n_plan(path: Path | None) -> dict[str, Any]:
     if path is None:
-        return {"language": ZH_CN, "translations": {}}
+        return {"language": ZH_CN, "translations": {}, "route_segment_labels": {}}
     payload = load_yaml_file(path)
     if not isinstance(payload, dict):
         raise ValueError(f"Invalid i18n plan: {path}")
@@ -166,9 +166,13 @@ def load_i18n_plan(path: Path | None) -> dict[str, Any]:
     translations = payload.get("translations", {})
     if not isinstance(translations, dict):
         raise ValueError(f"i18n plan translations must be a mapping: {path}")
+    route_segment_labels = payload.get("route_segment_labels", {})
+    if not isinstance(route_segment_labels, dict):
+        raise ValueError(f"i18n plan route_segment_labels must be a mapping: {path}")
     return {
         "language": language,
         "translations": translations,
+        "route_segment_labels": route_segment_labels,
     }
 
 
