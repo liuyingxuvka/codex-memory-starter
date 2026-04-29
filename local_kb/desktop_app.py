@@ -23,7 +23,7 @@ def _enable_windows_dpi_awareness() -> None:
 _enable_windows_dpi_awareness()
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import font as tkfont, ttk
 
 from PIL import Image, ImageDraw, ImageFilter, ImageTk
 
@@ -392,180 +392,136 @@ SOURCE_KIND_LABELS = {
 
 CARD_PALETTES = [
     {
-        "name": "rose",
-        "fill": "#f84f8f",
+        "name": "ion-blue",
+        "fill": "#2563eb",
         "deep": "#ffffff",
-        "soft": "#ff8eb8",
-        "line": "#ffbfd3",
-        "muted": "#ffe6ef",
-        "pill": "#ffffff",
-        "pill_text": "#c91558",
-        "outline": "#f4c0d2",
+        "soft": "#60a5fa",
+        "line": "#bfdbfe",
+        "muted": "#e0f2fe",
+        "pill": "#eaf4ff",
+        "pill_text": "#1d4ed8",
+        "outline": "#a8c7ff",
     },
     {
-        "name": "sunset",
-        "fill": "#ff7a1a",
+        "name": "champagne-gold",
+        "fill": "#d59b2e",
         "deep": "#ffffff",
-        "soft": "#ffb24c",
-        "line": "#ffd173",
-        "muted": "#fff0d2",
-        "pill": "#fff3df",
-        "pill_text": "#bd4a00",
-        "outline": "#f4c891",
+        "soft": "#edc766",
+        "line": "#f7e1a4",
+        "muted": "#fff8e6",
+        "pill": "#fff2cf",
+        "pill_text": "#82520c",
+        "outline": "#e8ca83",
     },
     {
-        "name": "solar",
-        "fill": "#ffd166",
-        "deep": "#4b3300",
-        "soft": "#ffe199",
-        "line": "#fff0b7",
-        "muted": "#7d5c12",
-        "pill": "#fff4cc",
-        "pill_text": "#684500",
-        "outline": "#f0c66d",
-    },
-    {
-        "name": "violet",
-        "fill": "#6d4cff",
+        "name": "cyber-cyan",
+        "fill": "#0891b2",
         "deep": "#ffffff",
-        "soft": "#9c7cff",
-        "line": "#c1b0ff",
-        "muted": "#eee9ff",
-        "pill": "#efeaff",
-        "pill_text": "#4d2fd6",
-        "outline": "#c9bfff",
+        "soft": "#67e8f9",
+        "line": "#a5f3fc",
+        "muted": "#dcfbff",
+        "pill": "#e5fbff",
+        "pill_text": "#0e7490",
+        "outline": "#99e7f0",
     },
     {
-        "name": "bluewave",
-        "fill": "#1677ff",
+        "name": "copper-ember",
+        "fill": "#b9683a",
         "deep": "#ffffff",
-        "soft": "#55a4ff",
-        "line": "#9fd0ff",
-        "muted": "#e2f1ff",
-        "pill": "#e9f4ff",
-        "pill_text": "#0759c7",
-        "outline": "#a9d0ff",
+        "soft": "#d99563",
+        "line": "#efc39d",
+        "muted": "#fff0e4",
+        "pill": "#fff0e2",
+        "pill_text": "#874015",
+        "outline": "#dfb28e",
     },
     {
-        "name": "cyan",
-        "fill": "#00a6d6",
+        "name": "indigo-core",
+        "fill": "#4f46e5",
         "deep": "#ffffff",
-        "soft": "#4cc6e8",
-        "line": "#a5e8f7",
-        "muted": "#e5faff",
-        "pill": "#e7fbff",
-        "pill_text": "#006987",
-        "outline": "#a8e8f4",
+        "soft": "#818cf8",
+        "line": "#c7d2fe",
+        "muted": "#eef2ff",
+        "pill": "#edf0ff",
+        "pill_text": "#4338ca",
+        "outline": "#b8c1fb",
     },
     {
-        "name": "emerald",
-        "fill": "#2fb344",
+        "name": "coral-signal",
+        "fill": "#d8585e",
         "deep": "#ffffff",
-        "soft": "#63cf72",
-        "line": "#b5ecbd",
-        "muted": "#e7f8e9",
-        "pill": "#e8faeb",
-        "pill_text": "#18752a",
-        "outline": "#abe4b4",
-    },
-    {
-        "name": "lime",
-        "fill": "#a3d82f",
-        "deep": "#263600",
-        "soft": "#c7ec6a",
-        "line": "#e4f7a5",
-        "muted": "#456000",
-        "pill": "#f1ffd1",
-        "pill_text": "#365000",
-        "outline": "#d4ee8a",
-    },
-    {
-        "name": "magenta",
-        "fill": "#c026d3",
-        "deep": "#ffffff",
-        "soft": "#e879f9",
-        "line": "#f0abfc",
-        "muted": "#fde7ff",
-        "pill": "#fde9ff",
-        "pill_text": "#9412a5",
-        "outline": "#efb5f6",
-    },
-    {
-        "name": "cranberry",
-        "fill": "#c2413d",
-        "deep": "#ffffff",
-        "soft": "#e06b67",
-        "line": "#f2aaa7",
-        "muted": "#ffe8e7",
+        "soft": "#f08a86",
+        "line": "#f8bbb4",
+        "muted": "#fff0ef",
         "pill": "#fff0ef",
-        "pill_text": "#92201d",
-        "outline": "#e7aca9",
+        "pill_text": "#a63237",
+        "outline": "#efb0ad",
     },
     {
-        "name": "steel",
-        "fill": "#6f7f96",
+        "name": "cranberry-rose",
+        "fill": "#bf3f66",
+        "deep": "#ffffff",
+        "soft": "#e27695",
+        "line": "#f3b3c4",
+        "muted": "#ffeaf0",
+        "pill": "#ffeef3",
+        "pill_text": "#942446",
+        "outline": "#eab4c4",
+    },
+    {
+        "name": "sage-green",
+        "fill": "#6f9c82",
+        "deep": "#ffffff",
+        "soft": "#9fc2a9",
+        "line": "#c9dccd",
+        "muted": "#eff7f1",
+        "pill": "#eef7f1",
+        "pill_text": "#436c52",
+        "outline": "#bfd5c5",
+    },
+    {
+        "name": "steel-ice",
+        "fill": "#64748b",
         "deep": "#ffffff",
         "soft": "#94a3b8",
         "line": "#cbd5e1",
-        "muted": "#eef2f7",
+        "muted": "#f1f5f9",
         "pill": "#edf2f7",
         "pill_text": "#475569",
         "outline": "#c8d1dc",
     },
     {
-        "name": "grape",
-        "fill": "#7055b8",
+        "name": "burgundy-plum",
+        "fill": "#8f3d59",
         "deep": "#ffffff",
-        "soft": "#9b87d8",
-        "line": "#c8bbef",
-        "muted": "#f0ebff",
-        "pill": "#f0ebff",
-        "pill_text": "#5b3ca1",
-        "outline": "#cabeee",
+        "soft": "#b96b83",
+        "line": "#dda8b7",
+        "muted": "#f8e8ee",
+        "pill": "#faedf2",
+        "pill_text": "#6f253f",
+        "outline": "#d3a1b0",
     },
     {
-        "name": "cream",
-        "fill": "#fff4e8",
-        "deep": "#70482d",
-        "soft": "#ffe8d0",
-        "line": "#efd2b4",
-        "muted": "#9c7a63",
-        "pill": "#f8ddc1",
-        "pill_text": "#70482d",
-        "outline": "#eadfd9",
-    },
-    {
-        "name": "sky",
-        "fill": "#67b7dc",
+        "name": "warm-plum",
+        "fill": "#9b5c8f",
         "deep": "#ffffff",
-        "soft": "#91cdec",
-        "line": "#b8e2f4",
-        "muted": "#effaff",
-        "pill": "#e8f8ff",
-        "pill_text": "#247699",
-        "outline": "#b3dff2",
+        "soft": "#c389ba",
+        "line": "#e3bfdc",
+        "muted": "#fbecf8",
+        "pill": "#f8edf6",
+        "pill_text": "#713e6a",
+        "outline": "#d7b4d0",
     },
     {
-        "name": "mint",
-        "fill": "#72c6a4",
-        "deep": "#0d3f30",
-        "soft": "#9ee0c4",
-        "line": "#c7f2df",
-        "muted": "#174f3f",
-        "pill": "#dff8ee",
-        "pill_text": "#166044",
-        "outline": "#bcead7",
-    },
-    {
-        "name": "lavender",
-        "fill": "#a99bdd",
+        "name": "amber-node",
+        "fill": "#bf8416",
         "deep": "#ffffff",
-        "soft": "#c6b8ee",
-        "line": "#d7cdf2",
-        "muted": "#f0ecff",
-        "pill": "#f2eeff",
-        "pill_text": "#6c58bc",
-        "outline": "#d4c9ef",
+        "soft": "#f3c24b",
+        "line": "#f8dda0",
+        "muted": "#fff8e6",
+        "pill": "#fff2cf",
+        "pill_text": "#7c4a03",
+        "outline": "#e7c987",
     },
 ]
 
@@ -774,6 +730,23 @@ def _source_line(card: dict[str, Any], language: str = DEFAULT_LANGUAGE) -> str:
     if card.get("read_only"):
         parts.append("只读" if normalize_language(language) == ZH_CN else "read-only")
     return " · ".join(parts)
+
+
+def _compact_source_line(card: dict[str, Any], language: str = DEFAULT_LANGUAGE) -> str:
+    line = _source_line(card, language)
+    if normalize_language(language) == ZH_CN:
+        return line.replace("作者：", "")
+    return line.replace("Author: ", "")
+
+
+def _fit_text_to_width(text: str, font: tkfont.Font, max_width: int) -> str:
+    clean = normalize_text(text)
+    if font.measure(clean) <= max_width:
+        return clean
+    ellipsis = "..."
+    while clean and font.measure(f"{clean}{ellipsis}") > max_width:
+        clean = clean[:-1].rstrip()
+    return f"{clean}{ellipsis}" if clean else ellipsis
 
 
 def _cover_title(card: dict[str, Any], language: str = DEFAULT_LANGUAGE) -> str:
@@ -1141,7 +1114,7 @@ class KbDesktopApp(tk.Tk):
         margin = max(self._u(4), blur + self._u(1))
 
         cache_key = (
-            "card-surface-v2",
+            "card-surface-diagonal-v1",
             width,
             height,
             radius,
@@ -1185,17 +1158,33 @@ class KbDesktopApp(tk.Tk):
         blurred_shadow = shadow_layer.filter(ImageFilter.GaussianBlur(blur * scale))
         surface = Image.alpha_composite(surface, blurred_shadow)
 
-        top = _blend_hex(palette.get("soft", palette["fill"]), "#ffffff", 0.12)
+        top = _blend_hex(palette.get("soft", palette["fill"]), "#ffffff", 0.16)
         mid = palette["fill"]
-        bottom = _blend_hex(palette["fill"], "#000000", 0.10)
-        gradient_column = Image.new("RGBA", (1, card_h), (0, 0, 0, 0))
-        gradient_draw = ImageDraw.Draw(gradient_column)
-        for yy in range(card_h):
-            t = yy / max(1, card_h - 1)
-            color = _blend_hex(top, mid, t / 0.55) if t <= 0.55 else _blend_hex(mid, bottom, (t - 0.55) / 0.45)
-            gradient_draw.point((0, yy), fill=(*_hex_to_rgb(color), 255))
+        bottom = _blend_hex(palette["fill"], "#000000", 0.14)
         resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
-        gradient = gradient_column.resize((card_w, card_h), resampling)
+        sample_w = min(128, card_w)
+        sample_h = min(128, card_h)
+        gradient_sample = Image.new("RGBA", (sample_w, sample_h), (0, 0, 0, 0))
+        gradient_draw = ImageDraw.Draw(gradient_sample)
+        max_x = max(1, sample_w - 1)
+        max_y = max(1, sample_h - 1)
+        for yy in range(sample_h):
+            y_ratio = yy / max_y
+            for xx in range(sample_w):
+                t = ((xx / max_x) + y_ratio) / 2
+                color = _blend_hex(top, mid, t / 0.55) if t <= 0.55 else _blend_hex(mid, bottom, (t - 0.55) / 0.45)
+                gradient_draw.point((xx, yy), fill=(*_hex_to_rgb(color), 255))
+        gradient = gradient_sample.resize((card_w, card_h), resampling)
+
+        highlight_sample = Image.new("RGBA", (sample_w, sample_h), (0, 0, 0, 0))
+        highlight_draw = ImageDraw.Draw(highlight_sample)
+        max_diag = max(1, sample_w + sample_h - 2)
+        for yy in range(sample_h):
+            for xx in range(sample_w):
+                alpha = max(0, int((1 - (xx + yy) / max_diag) * (24 if hovered else 18)))
+                if alpha:
+                    highlight_draw.point((xx, yy), fill=(255, 255, 255, alpha))
+        highlight = highlight_sample.resize((card_w, card_h), resampling)
 
         texture = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 0))
         texture_draw = ImageDraw.Draw(texture)
@@ -1216,12 +1205,7 @@ class KbDesktopApp(tk.Tk):
             fill=(255, 255, 255, max(8, arc_alpha - 6)),
             width=max(1, arc_width - 1),
         )
-        highlight = Image.new("RGBA", (1, card_h), (0, 0, 0, 0))
-        highlight_draw = ImageDraw.Draw(highlight)
-        for yy in range(card_h):
-            alpha = max(0, int((1 - yy / max(1, card_h * 0.48)) * (22 if hovered else 16)))
-            highlight_draw.point((0, yy), fill=(255, 255, 255, alpha))
-        texture = Image.alpha_composite(highlight.resize((card_w, card_h), resampling), texture)
+        texture = Image.alpha_composite(highlight, texture)
         gradient = Image.alpha_composite(gradient, texture)
 
         mask = Image.new("L", (card_w, card_h), 0)
@@ -1259,7 +1243,7 @@ class KbDesktopApp(tk.Tk):
         image_h = max(1, height)
         radius_s = max(1, radius * scale)
         cache_key = (
-            "gradient-v2",
+            "gradient-diagonal-v1",
             image_w,
             image_h,
             radius,
@@ -1272,19 +1256,25 @@ class KbDesktopApp(tk.Tk):
             setattr(canvas, "_surface_photo", cached_photo)
             return
 
-        top = _blend_hex(palette.get("soft", palette["fill"]), "#ffffff", 0.12)
+        top = _blend_hex(palette.get("soft", palette["fill"]), "#ffffff", 0.16)
         mid = palette["fill"]
-        bottom = _blend_hex(palette["fill"], "#000000", 0.10)
+        bottom = _blend_hex(palette["fill"], "#000000", 0.14)
         surface_w = image_w * scale
         surface_h = image_h * scale
-        gradient_column = Image.new("RGBA", (1, surface_h), (0, 0, 0, 0))
-        gradient_draw = ImageDraw.Draw(gradient_column)
-        for yy in range(surface_h):
-            t = yy / max(1, surface_h - 1)
-            color = _blend_hex(top, mid, t / 0.55) if t <= 0.55 else _blend_hex(mid, bottom, (t - 0.55) / 0.45)
-            gradient_draw.point((0, yy), fill=(*_hex_to_rgb(color), 255))
+        sample_w = min(160, surface_w)
+        sample_h = min(160, surface_h)
+        gradient_sample = Image.new("RGBA", (sample_w, sample_h), (0, 0, 0, 0))
+        gradient_draw = ImageDraw.Draw(gradient_sample)
+        max_x = max(1, sample_w - 1)
+        max_y = max(1, sample_h - 1)
+        for yy in range(sample_h):
+            y_ratio = yy / max_y
+            for xx in range(sample_w):
+                t = ((xx / max_x) + y_ratio) / 2
+                color = _blend_hex(top, mid, t / 0.55) if t <= 0.55 else _blend_hex(mid, bottom, (t - 0.55) / 0.45)
+                gradient_draw.point((xx, yy), fill=(*_hex_to_rgb(color), 255))
         resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
-        gradient = gradient_column.resize((surface_w, surface_h), resampling)
+        gradient = gradient_sample.resize((surface_w, surface_h), resampling)
 
         texture = Image.new("RGBA", (surface_w, surface_h), (0, 0, 0, 0))
         texture_draw = ImageDraw.Draw(texture)
@@ -1303,12 +1293,15 @@ class KbDesktopApp(tk.Tk):
             fill=(255, 255, 255, 10),
             width=max(1, arc_width - 1),
         )
-        highlight = Image.new("RGBA", (1, surface_h), (0, 0, 0, 0))
-        highlight_draw = ImageDraw.Draw(highlight)
-        for yy in range(surface_h):
-            alpha = max(0, int((1 - yy / max(1, surface_h * 0.52)) * 16))
-            highlight_draw.point((0, yy), fill=(255, 255, 255, alpha))
-        texture = Image.alpha_composite(highlight.resize((surface_w, surface_h), resampling), texture)
+        highlight_sample = Image.new("RGBA", (sample_w, sample_h), (0, 0, 0, 0))
+        highlight_draw = ImageDraw.Draw(highlight_sample)
+        max_diag = max(1, sample_w + sample_h - 2)
+        for yy in range(sample_h):
+            for xx in range(sample_w):
+                alpha = max(0, int((1 - (xx + yy) / max_diag) * 18))
+                if alpha:
+                    highlight_draw.point((xx, yy), fill=(255, 255, 255, alpha))
+        texture = Image.alpha_composite(highlight_sample.resize((surface_w, surface_h), resampling), texture)
         gradient = Image.alpha_composite(gradient, texture)
 
         mask = Image.new("L", (surface_w, surface_h), 0)
@@ -2141,16 +2134,28 @@ class KbDesktopApp(tk.Tk):
         title = _cover_title(card, self.language)
         title_step = max(u(20), min(u(26), width // 16))
         title_y = y + u(58)
-        title_lines = _text_lines(title, 24, 2)
+        title_lines = _text_lines(title, 22, 2)
+        title_icon_r = max(u(12), min(u(16), int(title_step * 0.68)))
+        title_icon_cx = x + u(32)
+        title_icon_cy = title_y + max(u(12), int(title_step * (0.9 if len(title_lines) > 1 else 0.52)))
+        self.main.create_oval(
+            title_icon_cx - title_icon_r,
+            title_icon_cy - title_icon_r,
+            title_icon_cx + title_icon_r,
+            title_icon_cy + title_icon_r,
+            outline=palette["deep"],
+            width=max(2, u(3)),
+        )
+        title_left = x + u(54)
         for line_index, line in enumerate(title_lines):
             self.main.create_text(
-                x + u(22),
+                title_left,
                 title_y + line_index * title_step,
                 text=line,
                 anchor="nw",
                 fill=palette["deep"],
-                width=width - u(44),
-                font=self._font(13),
+                width=width - u(76),
+                font=self._font(13, "bold"),
             )
 
         footer_y = y + height - u(48)
@@ -2369,32 +2374,56 @@ class KbDesktopApp(tk.Tk):
             drawer_y = banner_h - u(14)
             header_canvas.create_rectangle(0, drawer_y, canvas_width, u(222), fill=BG, outline=BG)
             self._draw_gradient_surface(header_canvas, 0, 0, canvas_width, banner_h, u(26), palette)
-            header_canvas.create_text(u(32), u(28), text=_card_type_label(card, self.language), anchor="nw", fill=palette["muted"], font=("Segoe UI", f(12), "bold"))
             header_canvas.create_text(
                 u(32),
-                u(58),
+                u(28),
+                text=_card_type_label(card, self.language),
+                anchor="nw",
+                fill=palette["muted"],
+                font=("Segoe UI", f(12), "bold"),
+            )
+
+            title_y = u(58)
+            title_icon_r = max(u(12), min(u(17), f(15)))
+            title_icon_cx = u(51)
+            title_icon_cy = title_y + u(25)
+            header_canvas.create_oval(
+                title_icon_cx - title_icon_r,
+                title_icon_cy - title_icon_r,
+                title_icon_cx + title_icon_r,
+                title_icon_cy + title_icon_r,
+                outline=palette["deep"],
+                width=max(2, u(3)),
+            )
+            header_canvas.create_text(
+                u(82),
+                title_y,
                 text=str(card.get("title") or card.get("id") or ""),
                 anchor="nw",
                 fill=palette["deep"],
-                width=max(u(420), canvas_width - u(84)),
+                width=max(u(420), canvas_width - u(128)),
                 font=("Segoe UI", f(23), "bold"),
             )
-            meta = _status_label(card, self.language)
+            meta_parts = [_status_label(card, self.language)]
             confidence = _confidence_label(card)
             if confidence:
-                meta += f" · {self._text('confidence')} {confidence}"
-            source_meta = _source_line(card, self.language) if self._should_show_source_metadata(card) else ""
+                meta_parts.append(f"{self._text('confidence')} {confidence}")
+            source_meta = _compact_source_line(card, self.language) if self._should_show_source_metadata(card) else ""
             if source_meta:
-                meta += f" · {source_meta}"
-            pill_width = min(max(u(128), u(30) + len(meta) * u(7)), max(u(128), canvas_width - u(64)))
+                meta_parts.append(source_meta)
+            meta = " · ".join(part for part in meta_parts if part)
+            pill_font = tkfont.Font(family="Segoe UI", size=f(10), weight="bold")
+            max_pill_width = max(u(128), canvas_width - u(64))
+            max_text_width = max(u(96), max_pill_width - u(40))
+            fitted_meta = _fit_text_to_width(meta, pill_font, max_text_width)
+            pill_width = min(max_pill_width, max(u(160), pill_font.measure(fitted_meta) + u(40)))
             pill_right = u(32) + pill_width
             self._round_rect(header_canvas, u(32), banner_h - u(44), pill_right, banner_h - u(18), u(13), fill=palette["pill"])
             header_canvas.create_text(
-                u(46),
+                u(52),
                 banner_h - u(31),
-                text=_short_text(meta, 74),
+                text=fitted_meta,
                 anchor="w",
-                width=max(u(96), pill_width - u(28)),
                 fill=palette["pill_text"],
                 font=("Segoe UI", f(10), "bold"),
             )

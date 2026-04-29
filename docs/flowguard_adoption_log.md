@@ -39,3 +39,34 @@
   - `git diff --check`: no whitespace errors; PowerShell reported expected CRLF normalization warnings for touched files.
 - Friction point: a first mechanical attempt to wrap large maintenance functions matched the first `return` rather than the full function body. `py_compile` caught it, and the implementation was redone with function-boundary-aware wrapping.
 - Next action: keep the formal flowguard package/toolchain gap as a separate follow-up.
+
+## 2026-04-29 - Card Visual Merge Flow
+
+- Status: `completed`.
+- Task: model the accepted sandbox card visual refresh before merging it into the production desktop UI.
+- Trigger: the user approved the sandbox card-color, title-ring, diagonal-gradient, and detail-header treatment and asked to simulate risk before landing it in the official UI.
+- Model files:
+  - `.flowguard/card_visual_merge_flow.py`
+- Preflight command:
+  - `python -c "import flowguard; print(flowguard.SCHEMA_VERSION)"`: passed with schema version `1.0`.
+- Commands:
+  - `python .flowguard\card_visual_merge_flow.py`: passed. The accepted merge reaches a verified state; missing sandbox cleanup is blocked; route mutation, wrapped detail pill, and vertical-gradient variants are rejected; loop and contract checks pass.
+  - `python -m py_compile local_kb\desktop_app.py .flowguard\card_visual_merge_flow.py`: passed.
+  - `python scripts\kb_desktop.py --repo-root . --check`: passed in English with 139 entries.
+  - `python scripts\kb_desktop.py --repo-root . --language zh-CN --check`: passed in Chinese with 139 entries.
+  - `python -m unittest tests.test_kb_desktop_ui`: 14 tests passed.
+  - `python -m unittest discover -s tests`: 218 tests passed.
+  - local screenshot QA: production overview and detail screenshots were captured under `.local/qa` and visually inspected.
+  - `git diff --check`: no whitespace errors; PowerShell reported expected CRLF normalization warnings for touched files.
+- Findings:
+  - The accepted production merge changes only card palette selection, card/detail diagonal gradients, title ring and bold title treatment, and detail header metadata pill fitting.
+  - The temporary sandbox script was removed after porting the accepted behavior into production.
+  - Source body metadata in the detail window remains unchanged; only the header pill uses a compact one-line source form.
+- Counterexamples:
+  - Missing `remove_sandbox` before `production_check` fails to reach `production_check_passed`.
+  - `bad_route_mutation` is rejected by `no_data_or_route_mutation`.
+  - `bad_detail_wrap` is rejected by `accepted_detail_visual_when_merged`.
+  - `bad_vertical_gradient` is rejected by `accepted_grid_visual_when_merged`.
+- Skipped step: a pixel-perfect production conformance replay adapter was not created because this visual-only Tkinter change is better verified by the executable architectural model, existing UI payload checks, focused tests, and real screenshots.
+- Friction point: the repository already had unrelated local flowguard/i18n and candidate-adoption files, so release staging must stay scoped.
+- Next action: update README screenshots using public-safe fixture data, then perform the release audit before publishing.

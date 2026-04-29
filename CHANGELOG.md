@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.5 - 2026-04-29
+
+- Refreshed the desktop card visual system with a broader premium palette, diagonal card/header gradients, larger title rings, and bold card titles.
+- Brought the same title-ring treatment into the card detail header and tightened the detail metadata pill so source information stays on one line.
+- Updated the README desktop preview screenshots from a public-safe fixture that demonstrates local and organization cards without exposing live local KB data.
+- Added a flowguard model for the sandbox-to-production visual merge boundary, covering visual readiness, sandbox cleanup, route/data preservation, and rejected broken variants.
+
 ## v0.4.4 - 2026-04-28
 
 - Fixed software update coordination so a failed update cannot be retried automatically by Architect until the user prepares the update again.
