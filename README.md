@@ -13,7 +13,7 @@
 - Repository head (`main`) / 仓库主线（`main`）: `v0.4.6`
 - Latest released version / 最新已发布版本: `v0.4.6`
 - Project name / 项目名称: `Khaos Brain`
-- English comes first; the second half is a full Chinese mirror. / 英文正文在前；后半部分是完整中文镜像。
+- English lead content comes first; the full Chinese section follows below. / 英文主内容在前，完整中文部分在后方。
 
 <p align="center">
   <img src="assets/khaos-brain-icon.png" alt="Khaos Brain icon" width="136">
@@ -21,13 +21,9 @@
 
 `Khaos Brain` is a “brain-like” experience system for AI agents: it organizes task experience, predictive models, user preferences, runtime lessons, and shareable skills into a card library that is observable, maintainable, and Git-versionable.
 
-`Khaos Brain` 是一套给 AI agent 使用的“脑式”经验系统：它把任务经验、预测模型、用户偏好、运行时教训和可共享 Skill 组织成可观察、可维护、可 Git 版本化的卡片库。
-
 The current release is Codex-first: the installer, global skills, default rules in `AGENTS.md`, and automations have already been integrated with Codex. More precisely, it is not a product conceptually limited to Codex, but rather an experience layer for AI agents; as long as the host agent can call and retrieve data before a task, write back evidence after a task, run local scripts, perform scheduled maintenance, load workflows/Skills, and read/write Git repositories, it can be adapted to the same structure.
 
-当前发行版是 Codex-first：安装器、全局 Skill、`AGENTS.md` 默认规则和 automations 已经为 Codex 打通。更准确地说，它不是概念上只能给 Codex 用的产品，而是一套 AI agent 经验层；只要宿主 agent 能在任务前调用检索、任务后写回证据、运行本地脚本、执行定时维护、加载工作流/Skill，并读写 Git 仓库，就可以按同一结构适配。
-
-## Product Preview / 产品预览
+## Product Preview
 
 | Local + Organization Cards | Organization Source | Card Detail |
 | --- | --- | --- |
@@ -420,7 +416,7 @@ python scripts/kb_desktop.py --repo-root . --check
 - `tests/`
 - `docs/organization_mode_plan.md`
 
-### Repository Layout
+### 仓库结构
 
 ```text
 .
