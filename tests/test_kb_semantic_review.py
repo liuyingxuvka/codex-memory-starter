@@ -98,6 +98,11 @@ class SemanticReviewApplyTests(unittest.TestCase):
                                 "judgment": "useful",
                                 "reason": "The card remains useful but needs a narrower operational surface.",
                             },
+                            "scope_assessment": {
+                                "scope": "single-project-generalizable",
+                                "reasoning": "The test evidence comes from one maintenance route but rewrites a reusable card surface.",
+                                "project_names_handling": "No project names are moved into the main rule.",
+                            },
                             "evidence_event_ids": [f"obs-{entry_id[-1]}"],
                             "rationale": "The cited evidence supports a narrower card surface.",
                             "expected_retrieval_effect": "Future retrieval should present sharper guidance.",
@@ -190,6 +195,11 @@ class SemanticReviewApplyTests(unittest.TestCase):
                                 "judgment": "useful",
                                 "reason": "Reviewed evidence shows the candidate should guide future maintenance tasks.",
                             },
+                            "scope_assessment": {
+                                "scope": "single-project-generalizable",
+                                "reasoning": "The candidate evidence is route-specific but reusable across maintenance tasks.",
+                                "project_names_handling": "Keep any source project references in provenance.",
+                            },
                             "target_scope": "private",
                             "evidence_event_ids": ["candidate-created-1"],
                             "rationale": "The candidate has enough reviewed evidence to enter trusted private scope.",
@@ -278,6 +288,11 @@ class SemanticReviewApplyTests(unittest.TestCase):
                                 "judgment": "low-utility",
                                 "reason": "The review says this would not help future retrieval.",
                             },
+                            "scope_assessment": {
+                                "scope": "single-project-generalizable",
+                                "reasoning": "Scope is present so the test exercises utility validation.",
+                                "project_names_handling": "No project names are promoted into card wording.",
+                            },
                             "evidence_event_ids": ["obs-low-utility"],
                             "rationale": "The cited evidence is not enough to preserve the surface.",
                             "expected_retrieval_effect": "Future retrieval would be less noisy.",
@@ -298,6 +313,57 @@ class SemanticReviewApplyTests(unittest.TestCase):
             self.assertEqual(result["apply_summary"]["updated_entry_count"], 0)
             self.assertIn(
                 "Surface-retaining semantic review decisions require utility_assessment.judgment: useful",
+                result["apply_summary"]["skipped_actions"][0]["reason"],
+            )
+
+    def test_semantic_review_requires_scope_assessment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            write_yaml_file(
+                repo_root / "kb" / "private" / "system" / "knowledge-library" / "maintenance" / "model-missing-scope.yaml",
+                sample_entry("model-missing-scope"),
+            )
+            write_history(
+                repo_root / "kb" / "history" / "events.jsonl",
+                [update_card_observation("model-missing-scope", "obs-missing-scope")],
+            )
+            plan_path = repo_root / "kb" / "history" / "consolidation" / "semantic-missing-scope" / "semantic_review_plan.yaml"
+            write_yaml_file(
+                plan_path,
+                {
+                    "kind": "local-kb-semantic-review-plan",
+                    "trusted_card_limit": 3,
+                    "decisions": [
+                        {
+                            "action_key": "review-entry-update::entry::model-missing-scope",
+                            "entry_id": "model-missing-scope",
+                            "apply": True,
+                            "decision": "rewrite",
+                            "risk": "medium",
+                            "utility_assessment": {
+                                "judgment": "useful",
+                                "reason": "The card remains useful.",
+                            },
+                            "evidence_event_ids": ["obs-missing-scope"],
+                            "rationale": "The cited evidence is enough to rewrite the card.",
+                            "expected_retrieval_effect": "Future retrieval should be more precise.",
+                            "rollback_note": "Restore the previous entry payload from apply.json if needed.",
+                            "updated_fields": {"use": {"guidance": "This should not be applied."}},
+                        }
+                    ],
+                },
+            )
+
+            result = consolidate_history(
+                repo_root=repo_root,
+                run_id="semantic-missing-scope",
+                apply_mode="semantic-review",
+                semantic_review_plan_path=plan_path,
+            )
+
+            self.assertEqual(result["apply_summary"]["updated_entry_count"], 0)
+            self.assertIn(
+                "Semantic review decisions require scope_assessment.scope",
                 result["apply_summary"]["skipped_actions"][0]["reason"],
             )
 
@@ -326,6 +392,11 @@ class SemanticReviewApplyTests(unittest.TestCase):
                             "utility_assessment": {
                                 "judgment": "low-utility",
                                 "reason": "The card is noisy and no longer helps future action selection.",
+                            },
+                            "scope_assessment": {
+                                "scope": "single-project-generalizable",
+                                "reasoning": "The card is reviewed as a reusable maintenance rule before deprecation.",
+                                "project_names_handling": "No project names are promoted into card wording.",
                             },
                             "evidence_event_ids": ["obs-deprecate"],
                             "rationale": "The card should leave the active retrieval surface.",

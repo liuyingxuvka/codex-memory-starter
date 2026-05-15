@@ -21,6 +21,8 @@ The repository installer is expected to provision a repo-managed `KB Sleep` cron
 - Treat `confidence` and `status` as reranking terms, not as stand-alone evidence that can create a hit without route or lexical support.
 - Every auto-apply rule should answer four questions clearly: what inputs it reads, what condition it checks, what file change it makes, and how it is validated or rolled back.
 - Semantic auto-apply should preserve AI agency but limit blast radius: AI decides the card outcome, while tooling requires cited evidence, risk, utility assessment, expected retrieval effect, rollback notes, and a maximum of 3 trusted-card modifications per run.
+- Sleep generalization review is required before candidate creation or semantic card changes. Classify evidence as `project-local`, `skill-specific`, `single-project-generalizable`, `cross-project-general`, or `insufficient-evidence`; use same-project chronology as evidence about sequence and correction, not as automatic proof of universal applicability.
+- Skill/plugin/tool evidence can stay bounded. If the lesson depends on a Codex Skill, plugin, connector, or tool capability, keep that boundary visible instead of rewriting the card as an unconditional general rule.
 - End every non-empty sleep pass with an explicit postflight check. If the pass exposed a reusable process lesson, card weakness, route gap, split signal, translation gap, or apply hazard, append one structured observation before finalizing.
 - After that final sleep postflight observation is written, stop the pass. Do not immediately run consolidation again on the observation that was just appended.
 
@@ -67,12 +69,13 @@ The repository installer is expected to provision a repo-managed `KB Sleep` cron
    - `review-route-i18n` actions are resolved only by the final AI-authored i18n plan through `route_segment_labels`; keep canonical routes unchanged
    - `new-candidates` requires concrete future utility: complete predictive evidence plus an actionable `operational_use`; low-confidence seeds are allowed, low-utility observations stay history-only
    - after every selected candidate/card creation or semantic-review pass is finished, treat zh-CN display completion as one final checkpoint for that sleep pass, not as repeated mid-run cleanup
-   - after any candidate/card creation or review pass, inspect route quality; prefer functional, reusable `domain_path` routes and keep project/repository/product names as provenance or tags unless the card is truly project-specific
+   - after any candidate/card creation or review pass, inspect route quality and scope assessment; prefer functional, reusable `domain_path` routes and keep project/repository/product names as provenance or tags unless the card is truly project-specific
+   - preserve Skill/plugin/tool-specific scope when the observed lesson depends on that capability
 8. Inspect per-action proposal stubs with `kb_proposals.py`.
    - When a grouped route action includes explicit contrastive evidence, prefer candidate scaffolds whose main `predict.expected_result` reflects the stronger revised path and whose `predict.alternatives` preserves the weaker earlier branch.
    - When a `review-candidate` or `review-entry-update` stub includes `dream_validation_summary`, inspect the cited sandbox path, evidence grade, validation status, and Sleep handoff. Use it as a reason to consider semantic review of that card, not as automatic promotion.
    - When a route such as `codex/workflow/skills` or `codex/skill-use/<skill-name>` emits a `review-code-change` action, treat it as an Architect proposal signal only; do not edit the Skill during the Sleep pass.
-9. When a semantic card change is justified, author a local semantic review plan. The plan must cite current action `evidence_event_ids`, set `apply: true`, include `rationale`, `risk`, `utility_assessment`, `expected_retrieval_effect`, and `rollback_note`, and respect the trusted-card budget of 3. Use `utility_assessment.judgment: useful` for `keep`, `rewrite`, `adjust-confidence`, or `promote`; use a non-useful judgment such as `low-utility`, `obsolete`, `misleading`, `unclear`, or `insufficient-evidence` for `demote` or `deprecate`.
+9. When a semantic card change is justified, author a local semantic review plan. The plan must cite current action `evidence_event_ids`, set `apply: true`, include `rationale`, `risk`, `utility_assessment`, `scope_assessment`, `expected_retrieval_effect`, and `rollback_note`, and respect the trusted-card budget of 3. Use `utility_assessment.judgment: useful` for `keep`, `rewrite`, `adjust-confidence`, or `promote`; use a non-useful judgment such as `low-utility`, `obsolete`, `misleading`, `unclear`, or `insufficient-evidence` for `demote` or `deprecate`. Use `scope_assessment.scope: skill-specific` for Skill/plugin/tool-bound lessons.
 10. If a weak observation should be ignored, a candidate should be rejected, a confidence review should be logged, or a split review should be closed without rewriting the trusted card yet, append that decision with `kb_maintenance.py`.
 11. For cards that recur in maintenance output, run a split review:
    - keep a hub card intact when it still expresses one bounded predictive relation
@@ -197,6 +200,10 @@ decisions:
     utility_assessment:
       judgment: useful
       reason: The card remains useful for future retrieval but needs a narrower operational surface.
+    scope_assessment:
+      scope: single-project-generalizable
+      reasoning: The evidence comes from one project, but the rule is a reusable functional maintenance behavior.
+      project_names_handling: Keep the source project in provenance and write the card without making that project the condition.
     evidence_event_ids:
       - obs-123
     rationale: The cited evidence shows the card remains useful but needs a narrower predictive claim.
@@ -370,7 +377,7 @@ python .agents/skills/local-kb-retrieve/scripts/kb_taxonomy.py `
 - Auto-apply `review-related-cards` actions only when repeated co-use of actually used `entry_ids` already supports a stable direct related-card set
 - Auto-apply `review-cross-index` actions only when repeated route evidence already supports a stable direct `cross_index` update
 - Auto-apply `review-i18n` and `review-route-i18n` actions only during the final AI-authored `zh-CN` display completion checkpoint when a plan is supplied; English top-level fields and canonical routes remain canonical
-- Auto-apply semantic card changes only when an AI-authored semantic review plan is supplied; thresholds may trigger review pressure, but AI must decide the specific `keep`, `rewrite`, `adjust-confidence`, `promote`, `demote`, or `deprecate` action, cite the supporting action event ids, and include `utility_assessment`
+- Auto-apply semantic card changes only when an AI-authored semantic review plan is supplied; thresholds may trigger review pressure, but AI must decide the specific `keep`, `rewrite`, `adjust-confidence`, `promote`, `demote`, or `deprecate` action, cite the supporting action event ids, and include `utility_assessment` plus `scope_assessment`
 - Cap semantic-review trusted-card modifications at 3 per run, including trusted rewrites, trusted confidence changes, deprecations, demotions, and candidate promotions into trusted scope
 - Restore `kb/history/events.jsonl` from a consolidation snapshot
 
@@ -404,7 +411,7 @@ Goals:
 7. For semantic card changes, let AI judge the card content and author a semantic-review plan; do not let raw thresholds directly decide rewrite, promotion, demotion, or deprecation.
 8. Apply semantic-review only with evidence ids, risk, utility assessment, expected retrieval effect, rollback note, and the trusted-card modification cap of 3.
 9. After all selected candidate/card creation, semantic-review text changes, and route review are done, run exactly one final AI zh-CN display completion checkpoint: inspect missing card translations and route/path display labels, author one i18n plan with `translations` and `route_segment_labels`, and run --apply-mode i18n-zh-CN once if anything is missing.
-10. Review candidate routes: prefer functional, reusable domain paths; keep project names as provenance or tags unless the card is truly project-specific.
+10. Review candidate routes and scope assessments: prefer functional, reusable domain paths; keep project names as provenance or tags unless the card is truly project-specific; keep Skill/plugin/tool names visible when the lesson is skill-specific.
 11. Keep deterministic rules simple, but do not replace AI semantic judgment with raw thresholds.
 12. Inspect snapshot/proposal/apply artifacts for the run.
 13. If a supported low-risk issue appears, attempt the repair, rerun the relevant validation, and update the execution plan instead of stopping early.

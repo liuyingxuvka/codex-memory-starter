@@ -659,3 +659,44 @@
 
 ### Next Actions
 - Keep the mistake-priority install checklist as part of strong_session_defaults for future machine setup.
+
+
+## kb-sleep-generalization-20260515 - Add scoped generalization review to Sleep maintenance
+
+- Project: Khaos-Brain
+- Trigger reason: Sleep maintenance changes card-candidate and semantic-review decision behavior, including same-project chronology, cross-project evidence, project-local boundaries, and skill-specific boundaries.
+- Status: completed
+- Skill decision: used_flowguard
+- Started: 2026-05-15T23:49:32+02:00
+- Ended: 2026-05-15T23:55:00+02:00
+- Commands OK: True
+
+### Model Files
+- .flowguard/kb_sleep_generalization_flow.py
+
+### Commands
+- OK: `python -c "import flowguard; print(flowguard.SCHEMA_VERSION)"` - flowguard schema version 1.0 is importable.
+- OK: `python .flowguard\kb_sleep_generalization_flow.py` - accepted Sleep generalization sequences passed and bad variants were rejected.
+- OK: `python -m py_compile .flowguard\kb_sleep_generalization_flow.py local_kb\consolidate_suggestions.py local_kb\consolidate_apply.py local_kb\semantic_review.py` - model and touched Python modules compiled.
+- OK: `python -m unittest tests.test_kb_consolidate_action_stubs_worker1 tests.test_kb_semantic_review tests.test_kb_consolidate_apply_worker1 tests.test_kb_maintenance_decisions` - 31 focused tests passed.
+
+### Findings
+- Sleep now models `project-local`, `skill-specific`, `single-project-generalizable`, `cross-project-general`, and `insufficient-evidence` as distinct outcomes.
+- Same-project repetition is modeled as chronology evidence, not cross-project proof.
+- Skill-specific evidence is modeled as a valid bounded rule and should retain the Skill/plugin/tool boundary when future invocation depends on it.
+- Semantic review apply is blocked when a card-surface decision lacks scope assessment.
+
+### Counterexamples
+- same-project evidence treated as cross-project evidence
+- project-local evidence rewritten as a general rule
+- skill-specific evidence rewritten as a capability-independent rule
+- old project-shaped reusable card left without a rewrite-as-general-rule review
+
+### Friction Points
+- none recorded
+
+### Skipped Steps
+- Full regression and install sync are tracked in the OpenSpec task list and release gate rather than this initial model note.
+
+### Next Actions
+- Run the broader regression suite and install sync before release.

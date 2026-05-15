@@ -69,6 +69,31 @@ SEMANTIC_REVIEW_UTILITY_ALIASES = {
     "insufficient evidence": "insufficient-evidence",
 }
 
+SEMANTIC_REVIEW_SCOPE_ASSESSMENTS = {
+    "project-local",
+    "skill-specific",
+    "single-project-generalizable",
+    "cross-project-general",
+    "insufficient-evidence",
+}
+
+SEMANTIC_REVIEW_SCOPE_ALIASES = {
+    "project local": "project-local",
+    "project-specific": "project-local",
+    "project specific": "project-local",
+    "skill specific": "skill-specific",
+    "skill-bound": "skill-specific",
+    "skill bound": "skill-specific",
+    "plugin-specific": "skill-specific",
+    "plugin specific": "skill-specific",
+    "single project generalizable": "single-project-generalizable",
+    "single-project": "single-project-generalizable",
+    "cross project general": "cross-project-general",
+    "cross-project": "cross-project-general",
+    "general": "cross-project-general",
+    "insufficient evidence": "insufficient-evidence",
+}
+
 SEMANTIC_REVIEW_ALLOWED_UPDATE_FIELDS = {
     "title",
     "type",
@@ -136,6 +161,25 @@ def normalize_semantic_utility_assessment(value: Any) -> dict[str, str]:
     if raw_judgment not in SEMANTIC_REVIEW_UTILITY_JUDGMENTS:
         raw_judgment = ""
     return {"judgment": raw_judgment, "reason": reason}
+
+
+def normalize_semantic_scope_assessment(value: Any) -> dict[str, str]:
+    if isinstance(value, dict):
+        raw_scope = str(value.get("scope", "") or "").strip().lower()
+        reasoning = str(value.get("reasoning") or value.get("reason") or "").strip()
+        project_names_handling = str(value.get("project_names_handling", "") or "").strip()
+    else:
+        raw_scope = str(value or "").strip().lower()
+        reasoning = ""
+        project_names_handling = ""
+    raw_scope = SEMANTIC_REVIEW_SCOPE_ALIASES.get(raw_scope, raw_scope)
+    if raw_scope not in SEMANTIC_REVIEW_SCOPE_ASSESSMENTS:
+        raw_scope = ""
+    return {
+        "scope": raw_scope,
+        "reasoning": reasoning,
+        "project_names_handling": project_names_handling,
+    }
 
 
 def normalize_semantic_review_plan(path: Path | None) -> dict[str, Any]:
@@ -248,6 +292,7 @@ def build_semantic_review_suggestion(
             "decision",
             "risk",
             "utility_assessment",
+            "scope_assessment",
             "evidence_event_ids",
             "rationale",
             "expected_retrieval_effect",
@@ -265,5 +310,12 @@ def build_semantic_review_suggestion(
             "misleading": "Use deprecate when future retrieval would likely push Codex toward the wrong action.",
             "unclear": "Do not preserve or promote a card without clearer future-use evidence.",
             "insufficient-evidence": "Do not preserve or promote a card when the review cannot ground future utility.",
+        },
+        "scope_policy": {
+            "project-local": "Use when the card depends on a named project, repository, workspace, or local mechanism.",
+            "skill-specific": "Use when the card depends on a named Skill, plugin, connector, or tool capability.",
+            "single-project-generalizable": "Use when evidence comes from one project but the final card should be a reusable functional rule.",
+            "cross-project-general": "Use when multiple independent projects or workspaces support the same rule.",
+            "insufficient-evidence": "Use when evidence is not enough to change the active card surface.",
         },
     }

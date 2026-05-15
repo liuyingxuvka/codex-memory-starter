@@ -43,6 +43,40 @@ from local_kb.semantic_review import (
 )
 
 NEW_CANDIDATE_ALTERNATIVE_LIMIT = 3
+SCOPE_PROJECT_LOCAL = "project-local"
+SCOPE_SKILL_SPECIFIC = "skill-specific"
+SCOPE_SINGLE_PROJECT_GENERALIZABLE = "single-project-generalizable"
+SCOPE_CROSS_PROJECT_GENERAL = "cross-project-general"
+SCOPE_INSUFFICIENT = "insufficient-evidence"
+
+GENERALIZATION_PROJECT_LOCAL_MARKERS = (
+    "project-specific",
+    "project specific",
+    "unique project",
+    "only in this project",
+    "this project only",
+    "repo-managed",
+    "repository-managed",
+    "sleep/dream/architect",
+    "sleep dream architect",
+    "maintenance lane",
+)
+GENERALIZATION_SKILL_MARKERS = (
+    "skill",
+    "plugin",
+    "connector",
+    "tool capability",
+    "codex skill",
+)
+GENERALIZATION_SKILL_ROUTE_SEGMENTS = {
+    "skills",
+    "skill-use",
+    "plugins",
+    "plugin-use",
+    "connectors",
+    "connector-use",
+    "tools",
+}
 DREAM_EVIDENCE_RANK = {
     "none": 0,
     "weak": 1,
@@ -171,6 +205,151 @@ def _summarize_text_examples(values: list[str], limit: int = 3) -> str:
     clipped = examples[:limit]
     suffix = " ..." if len(examples) > limit else ""
     return "; ".join(clipped) + suffix
+
+
+def _event_text_for_scope(event: dict[str, Any]) -> str:
+    predictive = event.get("predictive_observation", {})
+    if not isinstance(predictive, dict):
+        predictive = {}
+    parts = [
+        str(event.get("task_summary", "") or ""),
+        " ".join(str(segment) for segment in event.get("route_hint", []) or []),
+        str(predictive.get("scenario", "") or ""),
+        str(predictive.get("action_taken", "") or ""),
+        str(predictive.get("observed_result", "") or ""),
+        str(predictive.get("operational_use", "") or ""),
+        str(predictive.get("reuse_judgment", "") or ""),
+    ]
+    return " ".join(parts).lower()
+
+
+def _entry_text_for_scope(entry: dict[str, Any] | None) -> str:
+    if not entry:
+        return ""
+    fields = [
+        str(entry.get("title", "") or ""),
+        " ".join(str(segment) for segment in parse_route_segments(entry.get("domain_path", []))),
+        " ".join(route_label(parse_route_segments(route)) for route in entry.get("cross_index", []) or []),
+        " ".join(str(tag) for tag in entry.get("tags", []) or []),
+        " ".join(str(tag) for tag in entry.get("trigger_keywords", []) or []),
+        str(entry.get("if", {}) or ""),
+        str(entry.get("action", {}) or ""),
+        str(entry.get("predict", {}) or ""),
+        str(entry.get("use", {}) or ""),
+    ]
+    return " ".join(fields).lower()
+
+
+def _normalize_name_token(value: str) -> str:
+    return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+
+
+def _event_has_skill_signal(event: dict[str, Any]) -> bool:
+    route = parse_route_segments(event.get("route_hint", []))
+    route_tokens = {str(segment).strip().lower() for segment in route}
+    if route_tokens & GENERALIZATION_SKILL_ROUTE_SEGMENTS:
+        return True
+    text = _event_text_for_scope(event)
+    return any(marker in text for marker in GENERALIZATION_SKILL_MARKERS)
+
+
+def _text_has_project_local_signal(text: str) -> bool:
+    return any(marker in text for marker in GENERALIZATION_PROJECT_LOCAL_MARKERS)
+
+
+def _entry_is_project_shaped(
+    entry: dict[str, Any] | None,
+    project_refs: list[str],
+    workspace_roots: list[str],
+) -> bool:
+    if not entry:
+        return False
+    entry_text = _entry_text_for_scope(entry)
+    candidate_names = list(project_refs)
+    for workspace in workspace_roots:
+        if workspace:
+            candidate_names.extend(str(workspace).replace("\\", "/").split("/"))
+    for name in candidate_names:
+        token = _normalize_name_token(name)
+        if token and token in _normalize_name_token(entry_text):
+            return True
+    return _text_has_project_local_signal(entry_text)
+
+
+def assess_generalization_scope(
+    supporting_events: list[dict[str, Any]],
+    *,
+    action: dict[str, Any] | None = None,
+    entry: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    project_refs = _ordered_unique_text([str(event.get("project_ref", "") or "") for event in supporting_events])
+    workspace_roots = _ordered_unique_text([str(event.get("workspace_root", "") or "") for event in supporting_events])
+    thread_refs = _ordered_unique_text([str(event.get("thread_ref", "") or "") for event in supporting_events])
+    route_refs = _ordered_unique_text([route_label(event.get("route_hint", [])) for event in supporting_events])
+    route_count = len([route for route in route_refs if route])
+    if project_refs:
+        project_identity_count = len(set(project_refs))
+    elif workspace_roots:
+        project_identity_count = len(set(workspace_roots))
+    else:
+        project_identity_count = 0
+    if project_identity_count == 0 and thread_refs:
+        project_identity_count = 1
+    complete_predictive_count = sum(1 for event in supporting_events if has_predictive_evidence(event))
+    future_utility_count = sum(1 for event in supporting_events if has_predictive_utility(event))
+    has_functional_rule = complete_predictive_count > 0 and future_utility_count > 0
+    event_text = " ".join(_event_text_for_scope(event) for event in supporting_events)
+    entry_text = _entry_text_for_scope(entry)
+    has_project_local_signal = _text_has_project_local_signal(f"{event_text} {entry_text}")
+    has_skill_signal = any(_event_has_skill_signal(event) for event in supporting_events) or any(
+        segment in GENERALIZATION_SKILL_ROUTE_SEGMENTS
+        for segment in parse_route_segments(entry.get("domain_path", []) if entry else [])
+    )
+
+    if has_project_local_signal:
+        scope = SCOPE_PROJECT_LOCAL
+        recommended_handling = "keep-project-local"
+        reason = "The evidence or existing card depends on a project-specific mechanism or repository-managed workflow."
+        project_names_handling = "Keep project names in the card scope because they are part of the operating condition."
+    elif has_skill_signal:
+        scope = SCOPE_SKILL_SPECIFIC
+        recommended_handling = "keep-skill-specific"
+        reason = "The evidence depends on a Skill, plugin, connector, or tool capability, so the capability boundary should stay visible."
+        project_names_handling = "Keep project names as provenance when present; keep the Skill or plugin name in the route or card wording when it controls the lesson."
+    elif not has_functional_rule:
+        scope = SCOPE_INSUFFICIENT
+        recommended_handling = "history-only-or-watch"
+        reason = "The supporting observations do not yet provide complete predictive evidence with concrete future utility."
+        project_names_handling = "Do not promote project names into card wording until the reusable function is clearer."
+    elif project_identity_count > 1:
+        scope = SCOPE_CROSS_PROJECT_GENERAL
+        recommended_handling = "write-cross-project-general-rule"
+        reason = "Supporting observations come from multiple project or workspace identities and include future-useful predictive evidence."
+        project_names_handling = "Keep project names in provenance/source details and write the card as a functional rule."
+    else:
+        scope = SCOPE_SINGLE_PROJECT_GENERALIZABLE
+        recommended_handling = "write-functional-rule-with-provenance"
+        reason = "Evidence currently comes from one project or thread, but the observation describes a reusable functional rule."
+        project_names_handling = "Keep the source project in provenance/source/tags; write the main rule without making the project name the condition."
+
+    return {
+        "scope": scope,
+        "recommended_handling": recommended_handling,
+        "reason": reason,
+        "project_names_handling": project_names_handling,
+        "project_refs": project_refs,
+        "workspace_roots": workspace_roots,
+        "thread_refs": thread_refs,
+        "route_refs": route_refs,
+        "project_identity_count": project_identity_count,
+        "route_count": route_count,
+        "complete_predictive_event_count": complete_predictive_count,
+        "future_utility_event_count": future_utility_count,
+        "skill_signal": has_skill_signal,
+        "project_local_signal": has_project_local_signal,
+        "entry_project_shaped": _entry_is_project_shaped(entry, project_refs, workspace_roots),
+        "action_key": str((action or {}).get("action_key", "") or ""),
+    }
 
 
 def _normalize_predictive_observation(event: dict[str, Any]) -> dict[str, Any]:
@@ -337,6 +516,14 @@ def suggest_new_candidate_scaffold(
         if_notes_parts.append(
             f"{contrastive_event_count} supporting observations explicitly captured both a weaker earlier path and a stronger revised path."
         )
+    scope_assessment = action.get("scope_assessment")
+    if not isinstance(scope_assessment, dict):
+        scope_assessment = assess_generalization_scope(supporting_events, action=action)
+    scope = str(scope_assessment.get("scope", "") or "").strip()
+    if scope:
+        if_notes_parts.append(
+            f"Evidence scope: {scope}. {str(scope_assessment.get('reason', '') or '').strip()}"
+        )
 
     if revised_actions:
         action_description = f"Tasks routed through {route_title} where Codex follows this stronger revised path: {revised_actions[0]}"
@@ -374,13 +561,29 @@ def suggest_new_candidate_scaffold(
         guidance_parts.append(
             "Use same-project or same-thread chronology when rewriting this scaffold so the final card preserves what was tried earlier, what changed later, and why the better path won."
         )
+    if scope == SCOPE_SKILL_SPECIFIC:
+        guidance_parts.append(
+            "Keep the Skill, plugin, connector, or tool boundary in the final card when that capability controls the lesson."
+        )
+    elif scope == SCOPE_PROJECT_LOCAL:
+        guidance_parts.append(
+            "Keep this card project-local unless later evidence shows the same rule works outside the named project mechanism."
+        )
+    elif scope in {SCOPE_SINGLE_PROJECT_GENERALIZABLE, SCOPE_CROSS_PROJECT_GENERAL}:
+        guidance_parts.append(
+            str(scope_assessment.get("project_names_handling", "") or "").strip()
+            or "Write the final card as a reusable functional rule and keep project names in provenance."
+        )
 
     return {
         "title": (
-            f"Contrastive route lesson in {route_title}"
+            f"Skill-specific lesson in {route_title}"
+            if scope == SCOPE_SKILL_SPECIFIC
+            else f"Contrastive route lesson in {route_title}"
             if alternatives
             else f"{'Seed' if seed_candidate else 'Repeated'} route gap in {route_title}"
         ),
+        "scope_assessment": scope_assessment,
         "if": {"notes": " ".join(if_notes_parts).strip()},
         "action": {"description": action_description},
         "predict": {
@@ -1121,6 +1324,48 @@ def suggest_split_review(
     }
 
 
+def suggest_generalization_review(
+    action: dict[str, Any],
+    supporting_events: list[dict[str, Any]],
+    entry_lookup: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    if action.get("action_type") not in {"review-entry-update", "review-candidate"}:
+        return None
+    if str(action.get("target", {}).get("kind", "") or "") != "entry":
+        return None
+    entry_id = str(action.get("target", {}).get("ref", "") or "").strip()
+    entry = entry_lookup.get(entry_id)
+    assessment = assess_generalization_scope(supporting_events, action=action, entry=entry)
+    scope = str(assessment.get("scope", "") or "").strip()
+    entry_project_shaped = bool(assessment.get("entry_project_shaped", False))
+
+    if scope == SCOPE_PROJECT_LOCAL:
+        recommendation = "keep-project-local"
+        reason = "The current evidence depends on a project-specific mechanism, so project scope should remain visible."
+    elif scope == SCOPE_SKILL_SPECIFIC:
+        recommendation = "keep-skill-specific"
+        reason = "The current evidence depends on a Skill, plugin, connector, or tool capability, so that boundary should remain visible."
+    elif scope in {SCOPE_SINGLE_PROJECT_GENERALIZABLE, SCOPE_CROSS_PROJECT_GENERAL} and entry_project_shaped:
+        recommendation = "rewrite-as-general-rule"
+        reason = (
+            "The supporting evidence describes a reusable functional rule, while the current card still looks "
+            "project-shaped; semantic review should move project names into provenance or notes."
+        )
+    elif scope in {SCOPE_SINGLE_PROJECT_GENERALIZABLE, SCOPE_CROSS_PROJECT_GENERAL}:
+        recommendation = "keep-general-rule"
+        reason = "The card already appears compatible with reusable functional wording; preserve provenance while reviewing any wording changes."
+    else:
+        recommendation = "watch-insufficient-evidence"
+        reason = "The evidence does not yet justify generalizing, narrowing, or rewriting the active card surface."
+
+    return {
+        "recommendation": recommendation,
+        "scope_assessment": assessment,
+        "entry_project_shaped": entry_project_shaped,
+        "reason": reason,
+    }
+
+
 def describe_apply_eligibility(
     action: dict[str, Any],
     supporting_events: list[dict[str, Any]],
@@ -1276,6 +1521,14 @@ def annotate_actions_with_apply_eligibility(
         timeline_summary = summarize_observation_timeline(supporting_events)
         annotated_action["timeline_summary"] = timeline_summary
         annotated_action["predictive_evidence_summary"] = summarize_predictive_evidence(supporting_events)
+        entry = None
+        if str(action.get("target", {}).get("kind", "") or "") == "entry":
+            entry = entry_lookup.get(str(action.get("target", {}).get("ref", "") or "").strip())
+        annotated_action["scope_assessment"] = assess_generalization_scope(
+            supporting_events,
+            action=annotated_action,
+            entry=entry,
+        )
         dream_validation_summary = summarize_dream_validation(supporting_events)
         if dream_validation_summary:
             annotated_action["dream_validation_summary"] = dream_validation_summary
@@ -1333,6 +1586,13 @@ def annotate_actions_with_apply_eligibility(
         )
         if split_review:
             annotated_action["split_review_suggestion"] = split_review
+        generalization_review = suggest_generalization_review(
+            action=annotated_action,
+            supporting_events=supporting_events,
+            entry_lookup=entry_lookup,
+        )
+        if generalization_review:
+            annotated_action["generalization_review_suggestion"] = generalization_review
         semantic_review = build_semantic_review_suggestion(
             action=annotated_action,
             entry_lookup=entry_lookup,

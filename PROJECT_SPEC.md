@@ -118,6 +118,8 @@ This is the primary route through which the entry should be found.
 
 The primary route should normally describe the reusable function or direction of the lesson, not the project where the evidence happened. Project, repository, and product names belong in provenance, tags, trigger keywords, or explanatory text unless the card is intentionally project-specific.
 
+Skill, plugin, connector, and tool names are different from ordinary project names. If a lesson depends on a named Codex Skill, plugin, connector, or tool capability, the card may and often should keep that capability boundary visible in `domain_path`, `cross_index`, title, or guidance. The rule should still be predictive and bounded, but it does not need to be generalized into a capability-independent claim.
+
 ### 4.2 Cross routes
 
 Each entry may also define `cross_index`, for example:
@@ -567,6 +569,20 @@ Every confidence change should leave a history trace that records:
 - the new confidence
 - why it changed
 - which observations or maintenance pass motivated the change
+
+### 10.6.1 Generalization review during sleep maintenance
+
+Sleep maintenance should classify the evidence scope before creating candidates or changing existing card surfaces:
+
+- `project-local`: the lesson depends on a named project, repository, workspace, or unique local mechanism
+- `skill-specific`: the lesson depends on a named Skill, plugin, connector, or tool capability
+- `single-project-generalizable`: evidence comes from one project or workspace, but the causal rule is written as a reusable functional rule
+- `cross-project-general`: evidence spans multiple independent projects or workspaces
+- `insufficient-evidence`: evidence is not yet strong enough to change the active card surface
+
+Same-project repetition should strengthen chronology and correction evidence; it should not by itself prove that a rule is universal. Cross-project evidence strengthens generality. Skill-specific evidence is a valid bounded outcome and should not be stripped of its Skill/plugin/tool context merely to make a card look more general.
+
+When Sleep rewrites older cards, it should ask whether a project-shaped card can become a functional rule. If yes, project names should move into provenance, source, tags, or notes. If the card is genuinely project-local or skill-specific, the boundary should stay visible and the card should remain bounded rather than being forced into a generic rule.
 
 ### 10.7 Card splitting during sleep maintenance
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.5.0 - 2026-05-15
+
+- Added explicit Sleep evidence-scope classification for `project-local`, `skill-specific`, `single-project-generalizable`, `cross-project-general`, and `insufficient-evidence` outcomes before candidate scaffolds or semantic card-surface changes.
+- Updated new candidate previews and existing-card review actions so project names stay in provenance by default, same-project repetition is treated as chronology evidence, and old project-shaped reusable cards can be recommended for generalization.
+- Preserved Skill/plugin/connector/tool-specific lessons as valid bounded rules when future invocation depends on that capability, instead of forcing every lesson into a capability-independent rule.
+- Required semantic review apply decisions to include a `scope_assessment` object and carried the accepted scope into apply reports and maintenance-decision metadata.
+- Added an OpenSpec change package, FlowGuard model, focused regression coverage, and Sleep maintenance prompt/runbook/spec documentation for the new generalization flow.
+
 ## v0.4.8 - 2026-05-14
 
 - Prioritized Codex mistakes, weak paths, missed instructions, failed validations, tool/skill misuse, user corrections, and later correction episodes as the highest-value KB postflight observation evidence.

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from local_kb.consolidate import consolidate_history
 from local_kb.consolidate_apply import action_stub_filename
+from local_kb.store import write_yaml_file
 
 
 class ConsolidateActionStubTests(unittest.TestCase):
@@ -513,6 +514,117 @@ class ConsolidateActionStubTests(unittest.TestCase):
             )
             self.assertIn("project repo-a", timeline_summary["sequence_examples"][0])
             self.assertIn("Observed chronology:", candidate_action["candidate_scaffold_preview"]["if"]["notes"])
+            self.assertEqual(candidate_action["scope_assessment"]["scope"], "single-project-generalizable")
+            self.assertEqual(
+                candidate_action["candidate_scaffold_preview"]["scope_assessment"]["scope"],
+                "single-project-generalizable",
+            )
+            self.assertIn(
+                "source project in provenance",
+                candidate_action["candidate_scaffold_preview"]["use"]["guidance"],
+            )
+
+    def test_skill_specific_candidate_keeps_skill_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            history_path = repo_root / "kb" / "history" / "events.jsonl"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            event = {
+                "event_id": "obs-skill-1",
+                "event_type": "observation",
+                "created_at": "2026-05-15T08:00:00+00:00",
+                "source": {
+                    "kind": "task",
+                    "agent": "tester",
+                    "project_ref": "khaos-brain",
+                    "thread_ref": "thread-skill",
+                },
+                "target": {
+                    "kind": "task-observation",
+                    "route_hint": ["codex", "workflow", "skills"],
+                    "task_summary": "The presentations Skill needs a bounded usage rule",
+                },
+                "rationale": "next=new-candidate",
+                "context": {
+                    "suggested_action": "new-candidate",
+                    "predictive_observation": {
+                        "scenario": "When a task asks to create or edit a slide deck.",
+                        "action_taken": "Use the presentations Skill before writing deck code.",
+                        "observed_result": "The deck workflow keeps render-and-verify expectations visible.",
+                        "operational_use": "Invoke the presentations Skill for deck tasks and keep its validation boundary.",
+                        "reuse_judgment": "Reusable only when the presentations Skill or equivalent deck workflow is relevant.",
+                    },
+                },
+            }
+            history_path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+            result = consolidate_history(repo_root=repo_root, run_id="skill-scope-run", emit_files=True)
+
+            candidate_action = next(action for action in result["actions"] if action["action_type"] == "consider-new-candidate")
+            self.assertEqual(candidate_action["scope_assessment"]["scope"], "skill-specific")
+            self.assertEqual(candidate_action["candidate_scaffold_preview"]["scope_assessment"]["scope"], "skill-specific")
+            self.assertIn("Skill-specific lesson", candidate_action["candidate_scaffold_preview"]["title"])
+            self.assertIn("Skill, plugin, connector", candidate_action["candidate_scaffold_preview"]["use"]["guidance"])
+
+    def test_existing_project_shaped_card_gets_generalization_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            write_yaml_file(
+                repo_root / "kb" / "private" / "engineering" / "release" / "model-khaos-release.yaml",
+                {
+                    "id": "model-khaos-release",
+                    "title": "Khaos Brain release checks",
+                    "type": "model",
+                    "scope": "private",
+                    "domain_path": ["engineering", "release"],
+                    "cross_index": [],
+                    "tags": ["khaos-brain", "release"],
+                    "trigger_keywords": ["khaos brain release"],
+                    "if": {"notes": "When publishing Khaos Brain."},
+                    "action": {"description": "Check tag and release state."},
+                    "predict": {"expected_result": "Release drift is avoided.", "alternatives": []},
+                    "use": {"guidance": "Check Khaos Brain releases before publishing."},
+                    "confidence": 0.7,
+                    "source": [{"origin": "test", "date": "2026-05-15"}],
+                    "status": "trusted",
+                    "updated_at": "2026-05-15",
+                },
+            )
+            history_path = repo_root / "kb" / "history" / "events.jsonl"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            event = {
+                "event_id": "obs-release-general",
+                "event_type": "observation",
+                "created_at": "2026-05-15T09:00:00+00:00",
+                "source": {"kind": "task", "agent": "tester", "project_ref": "Khaos Brain"},
+                "target": {
+                    "kind": "task-observation",
+                    "entry_ids": ["model-khaos-release"],
+                    "route_hint": ["engineering", "release", "versioning"],
+                    "task_summary": "Repository release needed state audit before version bump",
+                },
+                "rationale": "next=update-card",
+                "context": {
+                    "suggested_action": "update-card",
+                    "hit_quality": "hit",
+                    "predictive_observation": {
+                        "scenario": "When a repository has version, tag, and GitHub Release surfaces.",
+                        "action_taken": "Audit current release state before deciding whether to bump version.",
+                        "observed_result": "The release path avoids creating unnecessary versions for the same source state.",
+                        "operational_use": "Use release-state audit before publishing repositories with version/tag/release surfaces.",
+                    },
+                },
+            }
+            history_path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+            result = consolidate_history(repo_root=repo_root, run_id="generalize-old-card-run", emit_files=True)
+
+            update_action = next(action for action in result["actions"] if action["action_type"] == "review-entry-update")
+            self.assertEqual(update_action["scope_assessment"]["scope"], "single-project-generalizable")
+            self.assertEqual(
+                update_action["generalization_review_suggestion"]["recommendation"],
+                "rewrite-as-general-rule",
+            )
 
 
 if __name__ == "__main__":
